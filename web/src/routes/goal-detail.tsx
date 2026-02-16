@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useParams, useNavigate, Link } from "react-router";
 import { ArrowLeft, Save, Archive, Star } from "lucide-react";
 import {
@@ -15,6 +15,7 @@ import {
 import type { GoalType, GoalState } from "../lib/types";
 import { ReasonSection } from "../components/reason-section";
 import { LoadingSpinner } from "../components/loading";
+import { showToast } from "../components/toast";
 import { formatDate, cn } from "../lib/utils";
 
 const GOAL_TYPE_OPTIONS: { value: GoalType; label: string; desc: string }[] = [
@@ -30,96 +31,23 @@ const GOAL_STATE_OPTIONS: { value: GoalState; label: string }[] = [
   { value: "abandoned", label: "Abandoned" },
 ];
 
+// ── Page shell: loading gate + key-based reset ──────────────────────────────
+
 export function GoalDetailPage() {
   const { goalId } = useParams<{ goalId: string }>();
-  const navigate = useNavigate();
   const isNew = !goalId;
+  const { data: goal, isLoading } = useGoal(goalId);
 
-  // Queries
-  const { data: goal, isLoading: goalLoading } = useGoal(goalId);
-  const { data: allGoals } = useGoals();
-  const { data: reasons = [], isLoading: reasonsLoading } = useGoalReasons(goalId);
-
-  // Mutations
-  const createMutation = useCreateGoal();
-  const updateMutation = useUpdateGoal();
-  const archiveMutation = useArchiveGoal();
-  const addReasonMutation = useAddGoalReason();
-  const updateReasonMutation = useUpdateGoalReason();
-  const deleteReasonMutation = useDeleteGoalReason();
-
-  // Form state
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
-  const [goalType, setGoalType] = useState<GoalType>("path");
-  const [state, setState] = useState<GoalState>("active");
-  const [parentGoalId, setParentGoalId] = useState<string>("");
-  const [dirty, setDirty] = useState(false);
-
-  // Populate form when goal loads
-  useEffect(() => {
-    if (goal) {
-      setTitle(goal.title);
-      setDescription(goal.description ?? "");
-      setGoalType(goal.goal_type);
-      setState(goal.state);
-      setParentGoalId(goal.parent_goal_id ?? "");
-      setDirty(false);
-    }
-  }, [goal]);
-
-  function markDirty() {
-    if (!dirty) setDirty(true);
-  }
-
-  const isSaving = createMutation.isPending || updateMutation.isPending;
-
-  // Available parent goals (exclude self, archived)
-  const parentOptions = allGoals?.filter(
-    (g) =>
-      g.id !== goalId &&
-      !g.deleted_at &&
-      g.state !== "archived",
-  );
-
-  async function handleSave() {
-    if (!title.trim()) return;
-
-    if (isNew) {
-      const created = await createMutation.mutateAsync({
-        title: title.trim(),
-        description: description.trim() || undefined,
-        goal_type: goalType,
-        state,
-        parent_goal_id: parentGoalId || undefined,
-      });
-      navigate(`/goals/${created.id}`, { replace: true });
-    } else if (goalId) {
-      await updateMutation.mutateAsync({
-        id: goalId,
-        data: {
-          title: title.trim(),
-          description: description.trim() || null,
-          goal_type: goalType,
-          state,
-          parent_goal_id: parentGoalId || null,
-        },
-      });
-      setDirty(false);
-    }
-  }
-
-  function handleArchive() {
-    if (!goalId) return;
-    if (confirm("Archive this goal? Active tasks must be unlinked first.")) {
-      archiveMutation.mutate(goalId, {
-        onSuccess: () => navigate("/goals"),
-      });
-    }
-  }
-
-  if (!isNew && goalLoading) {
-    return <LoadingSpinner />;
+  if (!isNew && isLoading) {
+    return (
+      <div className="animate-fade-in">
+        <Link to="/goals" className="btn-ghost mb-4 !px-0 text-zinc-500">
+          <ArrowLeft className="h-4 w-4" />
+          Back to Goals
+        </Link>
+        <LoadingSpinner />
+      </div>
+    );
   }
 
   if (!isNew && !goal) {
@@ -134,6 +62,92 @@ export function GoalDetailPage() {
         </div>
       </div>
     );
+  }
+
+  return <GoalDetailForm key={goalId ?? "new"} goalId={goalId} isNew={isNew} />;
+}
+
+// ── Form component: local state initialized once, no useEffect sync ─────────
+
+function GoalDetailForm({ goalId, isNew }: { goalId?: string; isNew: boolean }) {
+  const navigate = useNavigate();
+
+  // Live query — for read-only metadata (version, timestamps)
+  const { data: goal } = useGoal(goalId);
+  const { data: allGoals } = useGoals();
+  const { data: reasons = [], isLoading: reasonsLoading } = useGoalReasons(goalId);
+
+  // Mutations
+  const createMutation = useCreateGoal();
+  const updateMutation = useUpdateGoal();
+  const archiveMutation = useArchiveGoal();
+  const addReasonMutation = useAddGoalReason();
+  const updateReasonMutation = useUpdateGoalReason();
+  const deleteReasonMutation = useDeleteGoalReason();
+
+  // ── Form state: initialized once from goal data, never auto-synced ────
+  const [title, setTitle] = useState(goal?.title ?? "");
+  const [description, setDescription] = useState(goal?.description ?? "");
+  const [goalType, setGoalType] = useState<GoalType>(goal?.goal_type ?? "path");
+  const [state, setState] = useState<GoalState>(goal?.state ?? "active");
+  const [parentGoalId, setParentGoalId] = useState<string>(goal?.parent_goal_id ?? "");
+  const [dirty, setDirty] = useState(false);
+
+  const isSaving = createMutation.isPending || updateMutation.isPending;
+
+  function markDirty() {
+    if (!dirty) setDirty(true);
+  }
+
+  // Available parent goals (exclude self, archived)
+  const parentOptions = allGoals?.filter(
+    (g) => g.id !== goalId && !g.deleted_at && g.state !== "archived",
+  );
+
+  async function handleSave() {
+    if (!title.trim()) return;
+
+    try {
+      if (isNew) {
+        const created = await createMutation.mutateAsync({
+          title: title.trim(),
+          description: description.trim() || undefined,
+          goal_type: goalType,
+          state,
+          parent_goal_id: parentGoalId || undefined,
+        });
+        showToast("success", "Goal created");
+        navigate(`/goals/${created.id}`, { replace: true });
+      } else if (goalId) {
+        await updateMutation.mutateAsync({
+          id: goalId,
+          data: {
+            title: title.trim(),
+            description: description.trim() || null,
+            goal_type: goalType,
+            state,
+            parent_goal_id: parentGoalId || null,
+          },
+        });
+        setDirty(false);
+        showToast("success", "Changes saved");
+      }
+    } catch (err) {
+      showToast("error", (err as Error).message || "Failed to save");
+    }
+  }
+
+  function handleArchive() {
+    if (!goalId) return;
+    if (confirm("Archive this goal? Active tasks must be unlinked first.")) {
+      archiveMutation.mutate(goalId, {
+        onSuccess: () => {
+          showToast("success", "Goal archived");
+          navigate("/goals");
+        },
+        onError: (err) => showToast("error", err.message),
+      });
+    }
   }
 
   return (
@@ -285,7 +299,7 @@ export function GoalDetailPage() {
           </div>
         )}
 
-        {/* Footer */}
+        {/* Footer — metadata reads from live query, always fresh */}
         <div className="flex items-center justify-between border-t border-zinc-100 bg-zinc-50/80 px-6 py-4">
           <div className="text-xs text-zinc-400">
             {goal && (

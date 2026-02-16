@@ -1,10 +1,9 @@
-import { useState, useEffect } from "react";
+import { useState, useMemo } from "react";
 import { useParams, useNavigate, Link } from "react-router";
 import {
   ArrowLeft,
   Save,
   Archive,
-  Trash2,
   Link2,
   Plus,
   X,
@@ -22,10 +21,11 @@ import {
   useLinkTaskGoals,
   useUnlinkTaskGoal,
 } from "../lib/hooks";
-import type { TaskStatus, TaskPriority } from "../lib/types";
+import type { TaskStatus, TaskPriority, Task } from "../lib/types";
 import { GoalTypeBadge } from "../components/badges";
 import { ReasonSection } from "../components/reason-section";
 import { LoadingSpinner } from "../components/loading";
+import { showToast } from "../components/toast";
 import { formatDate, toDateInputValue, fromDateInputValue, cn } from "../lib/utils";
 
 const STATUS_OPTIONS: { value: TaskStatus; label: string }[] = [
@@ -42,122 +42,23 @@ const PRIORITY_OPTIONS: { value: TaskPriority; label: string }[] = [
   { value: "critical", label: "Critical" },
 ];
 
+// ── Page shell: loading gate + key-based reset ──────────────────────────────
+
 export function TaskDetailPage() {
   const { taskId } = useParams<{ taskId: string }>();
-  const navigate = useNavigate();
   const isNew = !taskId;
+  const { data: task, isLoading } = useTask(taskId);
 
-  // Queries
-  const { data: task, isLoading: taskLoading } = useTask(taskId);
-  const { data: goals } = useGoals();
-  const { data: reasons = [], isLoading: reasonsLoading } = useTaskReasons(taskId);
-
-  // Mutations
-  const createMutation = useCreateTask();
-  const updateMutation = useUpdateTask();
-  const archiveMutation = useArchiveTask();
-  const linkGoalsMutation = useLinkTaskGoals();
-  const unlinkGoalMutation = useUnlinkTaskGoal();
-  const addReasonMutation = useAddTaskReason();
-  const updateReasonMutation = useUpdateTaskReason();
-  const deleteReasonMutation = useDeleteTaskReason();
-
-  // Form state
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
-  const [status, setStatus] = useState<TaskStatus>("todo");
-  const [priority, setPriority] = useState<TaskPriority>("medium");
-  const [dueAt, setDueAt] = useState("");
-  const [selectedGoalIds, setSelectedGoalIds] = useState<string[]>([]);
-  const [showGoalPicker, setShowGoalPicker] = useState(false);
-  const [dirty, setDirty] = useState(false);
-
-  // Populate form when task loads
-  useEffect(() => {
-    if (task) {
-      setTitle(task.title);
-      setDescription(task.description ?? "");
-      setStatus(task.status);
-      setPriority(task.priority);
-      setDueAt(toDateInputValue(task.due_at));
-      setSelectedGoalIds(task.goal_ids);
-      setDirty(false);
-    }
-  }, [task]);
-
-  // Track dirty state
-  function markDirty() {
-    if (!dirty) setDirty(true);
-  }
-
-  const isSaving = createMutation.isPending || updateMutation.isPending;
-
-  async function handleSave() {
-    if (!title.trim()) return;
-
-    if (isNew) {
-      const created = await createMutation.mutateAsync({
-        title: title.trim(),
-        description: description.trim() || undefined,
-        status,
-        priority,
-        due_at: fromDateInputValue(dueAt),
-        goal_ids: selectedGoalIds.length > 0 ? selectedGoalIds : undefined,
-      });
-      navigate(`/tasks/${created.id}`, { replace: true });
-    } else if (taskId) {
-      await updateMutation.mutateAsync({
-        id: taskId,
-        data: {
-          title: title.trim(),
-          description: description.trim() || null,
-          status,
-          priority,
-          due_at: fromDateInputValue(dueAt),
-        },
-      });
-      setDirty(false);
-    }
-  }
-
-  function handleArchive() {
-    if (!taskId) return;
-    if (confirm("Archive this task?")) {
-      archiveMutation.mutate(taskId, {
-        onSuccess: () => navigate("/tasks"),
-      });
-    }
-  }
-
-  function handleLinkGoal(goalId: string) {
-    if (!taskId) {
-      // For new tasks, just add to local state
-      setSelectedGoalIds((prev) => [...prev, goalId]);
-      markDirty();
-    } else {
-      linkGoalsMutation.mutate({ taskId, data: { goal_ids: [goalId] } });
-    }
-    setShowGoalPicker(false);
-  }
-
-  function handleUnlinkGoal(goalId: string) {
-    if (!taskId) {
-      setSelectedGoalIds((prev) => prev.filter((id) => id !== goalId));
-      markDirty();
-    } else {
-      unlinkGoalMutation.mutate({ taskId, goalId });
-    }
-  }
-
-  // Available goals to link (not already linked)
-  const linkedGoalIds = new Set(isNew ? selectedGoalIds : (task?.goal_ids ?? []));
-  const availableGoals = goals?.filter(
-    (g) => !linkedGoalIds.has(g.id) && !g.deleted_at && g.state !== "archived",
-  );
-  const linkedGoals = goals?.filter((g) => linkedGoalIds.has(g.id));
-
-  if (!isNew && taskLoading) {
-    return <LoadingSpinner />;
+  if (!isNew && isLoading) {
+    return (
+      <div className="animate-fade-in">
+        <Link to="/tasks" className="btn-ghost mb-4 !px-0 text-zinc-500">
+          <ArrowLeft className="h-4 w-4" />
+          Back to Tasks
+        </Link>
+        <LoadingSpinner />
+      </div>
+    );
   }
 
   if (!isNew && !task) {
@@ -173,6 +74,131 @@ export function TaskDetailPage() {
       </div>
     );
   }
+
+  // key={taskId} ensures React discards & remounts the form when
+  // navigating between tasks, giving us fresh useState initializers.
+  return <TaskDetailForm key={taskId ?? "new"} taskId={taskId} isNew={isNew} />;
+}
+
+// ── Form component: local state initialized once, no useEffect sync ─────────
+
+function TaskDetailForm({ taskId, isNew }: { taskId?: string; isNew: boolean }) {
+  const navigate = useNavigate();
+
+  // Live query — used only for read-only metadata (version, timestamps)
+  // and for linked-goal display (which changes via link/unlink mutations).
+  const { data: task } = useTask(taskId);
+  const { data: goals } = useGoals();
+  const { data: reasons = [], isLoading: reasonsLoading } = useTaskReasons(taskId);
+
+  // Mutations
+  const createMutation = useCreateTask();
+  const updateMutation = useUpdateTask();
+  const archiveMutation = useArchiveTask();
+  const linkGoalsMutation = useLinkTaskGoals();
+  const unlinkGoalMutation = useUnlinkTaskGoal();
+  const addReasonMutation = useAddTaskReason();
+  const updateReasonMutation = useUpdateTaskReason();
+  const deleteReasonMutation = useDeleteTaskReason();
+
+  // ── Form state: initialized once from task data, never auto-synced ────
+  const [title, setTitle] = useState(task?.title ?? "");
+  const [description, setDescription] = useState(task?.description ?? "");
+  const [status, setStatus] = useState<TaskStatus>(task?.status ?? "todo");
+  const [priority, setPriority] = useState<TaskPriority>(task?.priority ?? "medium");
+  const [dueAt, setDueAt] = useState(toDateInputValue(task?.due_at));
+  const [selectedGoalIds, setSelectedGoalIds] = useState<string[]>(task?.goal_ids ?? []);
+  const [showGoalPicker, setShowGoalPicker] = useState(false);
+  const [dirty, setDirty] = useState(false);
+
+  const isSaving = createMutation.isPending || updateMutation.isPending;
+
+  function markDirty() {
+    if (!dirty) setDirty(true);
+  }
+
+  async function handleSave() {
+    if (!title.trim()) return;
+
+    try {
+      if (isNew) {
+        const created = await createMutation.mutateAsync({
+          title: title.trim(),
+          description: description.trim() || undefined,
+          status,
+          priority,
+          due_at: fromDateInputValue(dueAt),
+          goal_ids: selectedGoalIds.length > 0 ? selectedGoalIds : undefined,
+        });
+        showToast("success", "Task created");
+        navigate(`/tasks/${created.id}`, { replace: true });
+      } else if (taskId) {
+        await updateMutation.mutateAsync({
+          id: taskId,
+          data: {
+            title: title.trim(),
+            description: description.trim() || null,
+            status,
+            priority,
+            due_at: fromDateInputValue(dueAt),
+          },
+        });
+        setDirty(false);
+        showToast("success", "Changes saved");
+      }
+    } catch (err) {
+      showToast("error", (err as Error).message || "Failed to save");
+    }
+  }
+
+  function handleArchive() {
+    if (!taskId) return;
+    if (confirm("Archive this task?")) {
+      archiveMutation.mutate(taskId, {
+        onSuccess: () => {
+          showToast("success", "Task archived");
+          navigate("/tasks");
+        },
+        onError: (err) => showToast("error", err.message),
+      });
+    }
+  }
+
+  function handleLinkGoal(goalId: string) {
+    if (!taskId) {
+      setSelectedGoalIds((prev) => [...prev, goalId]);
+      markDirty();
+    } else {
+      linkGoalsMutation.mutate(
+        { taskId, data: { goal_ids: [goalId] } },
+        { onError: (err) => showToast("error", err.message) },
+      );
+    }
+    setShowGoalPicker(false);
+  }
+
+  function handleUnlinkGoal(goalId: string) {
+    if (!taskId) {
+      setSelectedGoalIds((prev) => prev.filter((id) => id !== goalId));
+      markDirty();
+    } else {
+      unlinkGoalMutation.mutate(
+        { taskId, goalId },
+        { onError: (err) => showToast("error", err.message) },
+      );
+    }
+  }
+
+  // For existing tasks, linked goals come from the live query (auto-updates
+  // after link/unlink mutations). For new tasks, from local state.
+  const linkedGoalIds = useMemo(
+    () => new Set(isNew ? selectedGoalIds : (task?.goal_ids ?? selectedGoalIds)),
+    [isNew, selectedGoalIds, task?.goal_ids],
+  );
+  const availableGoals = goals?.filter(
+    (g) => !linkedGoalIds.has(g.id) && !g.deleted_at && g.state !== "archived",
+  );
+  const linkedGoals = goals?.filter((g) => linkedGoalIds.has(g.id));
 
   return (
     <div className="animate-fade-in">
@@ -351,6 +377,7 @@ export function TaskDetailPage() {
 
         {/* Footer */}
         <div className="flex items-center justify-between border-t border-zinc-100 bg-zinc-50/80 px-6 py-4">
+          {/* Metadata reads from live query — always fresh after mutations */}
           <div className="text-xs text-zinc-400">
             {task && (
               <>
