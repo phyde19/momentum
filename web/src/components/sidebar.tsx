@@ -4,12 +4,14 @@ import {
   Target,
   Plus,
   Zap,
+  Layers3,
 } from "lucide-react";
 import { cn } from "../lib/utils";
 
 const navItems = [
   { to: "/tasks", label: "Tasks", icon: CheckSquare },
-  { to: "/goals", label: "Goals", icon: Target },
+  { to: "/initiatives", label: "Initiatives", icon: Target },
+  { to: "/drivers", label: "Drivers", icon: Layers3 },
 ];
 
 export function Sidebar() {
@@ -69,16 +71,28 @@ export function Sidebar() {
           New Task
         </Link>
         <Link
-          to="/goals/new"
+          to="/initiatives/new"
           className={cn(
             "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors duration-150",
-            location.pathname === "/goals/new"
+            location.pathname === "/initiatives/new"
               ? "bg-zinc-800 text-white"
               : "text-zinc-400 hover:bg-zinc-800/60 hover:text-zinc-100",
           )}
         >
           <Plus className="h-[18px] w-[18px]" />
-          New Goal
+          New Initiative
+        </Link>
+        <Link
+          to="/drivers/new"
+          className={cn(
+            "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors duration-150",
+            location.pathname === "/drivers/new"
+              ? "bg-zinc-800 text-white"
+              : "text-zinc-400 hover:bg-zinc-800/60 hover:text-zinc-100",
+          )}
+        >
+          <Plus className="h-[18px] w-[18px]" />
+          New Driver
         </Link>
       </div>
 

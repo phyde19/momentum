@@ -9,41 +9,51 @@ from sqlalchemy.orm import Session
 
 from app.auth import Actor, get_current_actor, get_request_id
 from app.config import get_settings
-from app.database import Base, SessionLocal, engine, get_db
+from app.database import Base, engine, get_db
 from app.domain import (
     create_audit_event,
-    ensure_default_goal,
-    ensure_goal_is_linkable,
-    ensure_task_has_goal_links,
-    get_goal_or_404,
-    get_primary_goal_id,
-    get_task_goal_ids,
+    ensure_driver_is_linkable,
+    ensure_driver_is_not_descendant,
+    ensure_driver_parent_is_valid,
+    ensure_initiative_is_linkable,
+    get_driver_or_404,
+    get_initiative_driver_ids,
+    get_initiative_or_404,
+    get_task_driver_ids,
     get_task_or_404,
+    initiative_has_driver_link,
     serialize_model,
+    task_has_driver_link,
     utcnow,
 )
 from app.models import (
-    Goal,
-    GoalReason,
-    GoalState,
-    GoalType,
+    AuditEvent,
+    Driver,
+    DriverState,
+    DriverType,
+    Initiative,
+    InitiativeDriverLink,
+    InitiativeReason,
+    InitiativeState,
     Task,
-    TaskGoalLink,
     TaskPriority,
+    TaskDriverLink,
+    TaskRecurrence,
     TaskReason,
     TaskStatus,
-    ActorType,
-    AuditEvent,
 )
 from app.schemas import (
     AuditEventResponse,
-    GoalCreate,
-    GoalReasonResponse,
-    GoalResponse,
-    GoalTreeNode,
-    GoalUpdate,
+    DriverCreate,
+    DriverResponse,
+    DriverTreeNode,
+    DriverUpdate,
     HealthResponse,
-    LinkGoalsRequest,
+    InitiativeCreate,
+    InitiativeReasonResponse,
+    InitiativeResponse,
+    InitiativeUpdate,
+    LinkDriversRequest,
     ReasonCreate,
     ReasonUpdate,
     TaskCreate,
@@ -71,9 +81,15 @@ def _task_response(db: Session, task: Task) -> TaskResponse:
         description=task.description,
         status=task.status,
         priority=task.priority,
-        due_at=task.due_at,
-        goal_ids=get_task_goal_ids(db, task.id),
-        primary_goal_id=get_primary_goal_id(db, task.id),
+        initiative_id=task.initiative_id,
+        due_start_at=task.due_start_at,
+        due_end_at=task.due_end_at,
+        recurrence=task.recurrence,
+        recurrence_interval=task.recurrence_interval,
+        recurrence_rule=task.recurrence_rule,
+        recurrence_until=task.recurrence_until,
+        checklist_json=task.checklist_json or [],
+        driver_ids=get_task_driver_ids(db, task.id),
         created_by=task.created_by,
         updated_by=task.updated_by,
         created_at=task.created_at,
@@ -83,39 +99,82 @@ def _task_response(db: Session, task: Task) -> TaskResponse:
     )
 
 
-def _goal_tree_nodes(goals: list[Goal]) -> list[GoalTreeNode]:
-    node_by_id: dict[str, GoalTreeNode] = {}
-    children_by_parent: dict[str | None, list[GoalTreeNode]] = {}
-    for goal in goals:
-        node = GoalTreeNode(
-            id=goal.id,
-            title=goal.title,
-            description=goal.description,
-            goal_type=goal.goal_type,
-            state=goal.state,
-            is_default=goal.is_default,
+def _initiative_response(db: Session, initiative: Initiative) -> InitiativeResponse:
+    return InitiativeResponse(
+        id=initiative.id,
+        title=initiative.title,
+        description=initiative.description,
+        state=initiative.state,
+        due_start_at=initiative.due_start_at,
+        due_end_at=initiative.due_end_at,
+        driver_ids=get_initiative_driver_ids(db, initiative.id),
+        created_by=initiative.created_by,
+        updated_by=initiative.updated_by,
+        created_at=initiative.created_at,
+        updated_at=initiative.updated_at,
+        deleted_at=initiative.deleted_at,
+        version=initiative.version,
+    )
+
+
+def _driver_tree_nodes(drivers: list[Driver]) -> list[DriverTreeNode]:
+    node_by_id: dict[str, DriverTreeNode] = {}
+    children_by_parent: dict[str | None, list[DriverTreeNode]] = {}
+    for driver in drivers:
+        node = DriverTreeNode(
+            id=driver.id,
+            title=driver.title,
+            description=driver.description,
+            driver_type=driver.driver_type,
+            state=driver.state,
+            parent_driver_id=driver.parent_driver_id,
             children=[],
         )
-        node_by_id[goal.id] = node
-        children_by_parent.setdefault(goal.parent_goal_id, []).append(node)
+        node_by_id[driver.id] = node
+        children_by_parent.setdefault(driver.parent_driver_id, []).append(node)
 
-    for goal in goals:
-        node = node_by_id[goal.id]
-        node.children = children_by_parent.get(goal.id, [])
+    for driver in drivers:
+        node = node_by_id[driver.id]
+        node.children = children_by_parent.get(driver.id, [])
 
     return children_by_parent.get(None, [])
+
+
+def _validate_due_window(due_start_at: Any, due_end_at: Any) -> None:
+    if due_start_at and due_end_at and due_start_at > due_end_at:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="due_start_at cannot be later than due_end_at.",
+        )
+
+
+def _validate_recurrence(
+    recurrence: TaskRecurrence | None,
+    recurrence_interval: int | None,
+    recurrence_rule: str | None,
+    recurrence_until: Any,
+) -> None:
+    has_recurrence_fields = recurrence_interval is not None or recurrence_rule is not None or recurrence_until
+    if recurrence is None and has_recurrence_fields:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="recurrence must be set when recurrence_* fields are provided.",
+        )
+    if recurrence is not None and recurrence_interval is not None and recurrence_interval < 1:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="recurrence_interval must be >= 1.",
+        )
+
+
+def _dedupe_ids(values: list[str]) -> list[str]:
+    return list(dict.fromkeys(values))
 
 
 @app.on_event("startup")
 def startup() -> None:
     if settings.auto_migrate:
         Base.metadata.create_all(bind=engine)
-    db = SessionLocal()
-    try:
-        ensure_default_goal(db)
-        db.commit()
-    finally:
-        db.close()
 
 
 @app.get("/health/live", response_model=HealthResponse)
@@ -129,66 +188,69 @@ def health_ready(db: Session = Depends(get_db)) -> HealthResponse:
     return HealthResponse(status="ok", service=settings.app_name)
 
 
-@app.get(f"{settings.api_prefix}/goals", response_model=list[GoalResponse])
-def list_goals(
+@app.get(f"{settings.api_prefix}/drivers", response_model=list[DriverResponse])
+def list_drivers(
     include_deleted: bool = False,
-    goal_type: GoalType | None = None,
-    state: GoalState | None = None,
+    driver_type: DriverType | None = None,
+    state: DriverState | None = None,
+    parent_driver_id: str | None = None,
     db: Session = Depends(get_db),
     _: Actor = Depends(get_current_actor),
-) -> list[Goal]:
-    stmt = select(Goal).order_by(Goal.created_at.asc())
+) -> list[Driver]:
+    stmt = select(Driver).order_by(Driver.created_at.asc())
     if not include_deleted:
-        stmt = stmt.where(Goal.deleted_at.is_(None))
-    if goal_type:
-        stmt = stmt.where(Goal.goal_type == goal_type)
+        stmt = stmt.where(Driver.deleted_at.is_(None))
+    if driver_type:
+        stmt = stmt.where(Driver.driver_type == driver_type)
     if state:
-        stmt = stmt.where(Goal.state == state)
+        stmt = stmt.where(Driver.state == state)
+    if parent_driver_id is not None:
+        stmt = stmt.where(Driver.parent_driver_id == parent_driver_id)
     return list(db.scalars(stmt))
 
 
-@app.get(f"{settings.api_prefix}/goals/tree", response_model=list[GoalTreeNode])
-def get_goals_tree(
+@app.get(f"{settings.api_prefix}/drivers/tree", response_model=list[DriverTreeNode])
+def get_drivers_tree(
     include_deleted: bool = False,
     db: Session = Depends(get_db),
     _: Actor = Depends(get_current_actor),
-) -> list[GoalTreeNode]:
-    stmt = select(Goal).order_by(Goal.created_at.asc())
+) -> list[DriverTreeNode]:
+    stmt = select(Driver).order_by(Driver.created_at.asc())
     if not include_deleted:
-        stmt = stmt.where(Goal.deleted_at.is_(None))
-    goals = list(db.scalars(stmt))
-    return _goal_tree_nodes(goals)
+        stmt = stmt.where(Driver.deleted_at.is_(None))
+    drivers = list(db.scalars(stmt))
+    return _driver_tree_nodes(drivers)
 
 
-@app.get(f"{settings.api_prefix}/goals/{{goal_id}}", response_model=GoalResponse)
-def get_goal(
-    goal_id: str,
+@app.get(f"{settings.api_prefix}/drivers/{{driver_id}}", response_model=DriverResponse)
+def get_driver(
+    driver_id: str,
     db: Session = Depends(get_db),
     _: Actor = Depends(get_current_actor),
-) -> Goal:
-    return get_goal_or_404(db, goal_id)
+) -> Driver:
+    return get_driver_or_404(db, driver_id)
 
 
-@app.post(f"{settings.api_prefix}/goals", response_model=GoalResponse, status_code=status.HTTP_201_CREATED)
-def create_goal(
-    payload: GoalCreate,
+@app.post(
+    f"{settings.api_prefix}/drivers", response_model=DriverResponse, status_code=status.HTTP_201_CREATED
+)
+def create_driver(
+    payload: DriverCreate,
     db: Session = Depends(get_db),
     actor: Actor = Depends(get_current_actor),
     request_id: str = Depends(get_request_id),
-) -> Goal:
-    if payload.parent_goal_id:
-        parent = get_goal_or_404(db, payload.parent_goal_id)
-        ensure_goal_is_linkable(parent)
+) -> Driver:
+    ensure_driver_parent_is_valid(db, payload.parent_driver_id)
 
-    created = Goal(**payload.model_dump())
+    created = Driver(**payload.model_dump())
     db.add(created)
     db.flush()
     create_audit_event(
         db,
         actor_type=actor.actor_type,
         actor_id=actor.actor_id,
-        action="goal.create",
-        entity_type="goal",
+        action="driver.create",
+        entity_type="driver",
         entity_id=created.id,
         request_id=request_id,
         before_json=None,
@@ -199,111 +261,113 @@ def create_goal(
     return created
 
 
-@app.patch(f"{settings.api_prefix}/goals/{{goal_id}}", response_model=GoalResponse)
-def update_goal(
-    goal_id: str,
-    payload: GoalUpdate,
+@app.patch(f"{settings.api_prefix}/drivers/{{driver_id}}", response_model=DriverResponse)
+def update_driver(
+    driver_id: str,
+    payload: DriverUpdate,
     db: Session = Depends(get_db),
     actor: Actor = Depends(get_current_actor),
     request_id: str = Depends(get_request_id),
-) -> Goal:
-    goal = get_goal_or_404(db, goal_id)
-    before = serialize_model(goal)
+) -> Driver:
+    driver = get_driver_or_404(db, driver_id)
+    before = serialize_model(driver)
     changes = payload.model_dump(exclude_unset=True)
 
-    if changes.get("parent_goal_id") == goal.id:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Goal cannot parent itself.")
-
-    if "parent_goal_id" in changes and changes["parent_goal_id"]:
-        parent = get_goal_or_404(db, changes["parent_goal_id"])
-        ensure_goal_is_linkable(parent)
-
-    if goal.is_default and changes.get("state") == GoalState.archived:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Default goal cannot be archived or deleted.",
-        )
+    if "parent_driver_id" in changes:
+        ensure_driver_is_not_descendant(db, driver.id, changes["parent_driver_id"])
+        ensure_driver_parent_is_valid(db, changes["parent_driver_id"])
 
     for key, value in changes.items():
-        setattr(goal, key, value)
-    goal.version += 1
+        setattr(driver, key, value)
+    driver.version += 1
 
     create_audit_event(
         db,
         actor_type=actor.actor_type,
         actor_id=actor.actor_id,
-        action="goal.update",
-        entity_type="goal",
-        entity_id=goal.id,
+        action="driver.update",
+        entity_type="driver",
+        entity_id=driver.id,
         request_id=request_id,
         before_json=before,
-        after_json=serialize_model(goal),
+        after_json=serialize_model(driver),
     )
     db.commit()
-    db.refresh(goal)
-    return goal
+    db.refresh(driver)
+    return driver
 
 
-@app.delete(f"{settings.api_prefix}/goals/{{goal_id}}", response_model=GoalResponse)
-def archive_goal(
-    goal_id: str,
+@app.delete(f"{settings.api_prefix}/drivers/{{driver_id}}", response_model=DriverResponse)
+def archive_driver(
+    driver_id: str,
     db: Session = Depends(get_db),
     actor: Actor = Depends(get_current_actor),
     request_id: str = Depends(get_request_id),
-) -> Goal:
-    goal = get_goal_or_404(db, goal_id)
-    if goal.is_default:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Default goal cannot be archived or deleted.",
-        )
-
+) -> Driver:
+    driver = get_driver_or_404(db, driver_id)
     children_count = db.scalar(
-        select(func.count()).select_from(Goal).where(
-            and_(Goal.parent_goal_id == goal.id, Goal.deleted_at.is_(None))
+        select(func.count()).select_from(Driver).where(
+            and_(Driver.parent_driver_id == driver.id, Driver.deleted_at.is_(None))
         )
     )
     if children_count:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Archive child goals first.",
+            detail="Archive child drivers first.",
         )
 
-    linked_active_tasks = db.scalar(
+    linked_tasks = db.scalar(
         select(func.count())
-        .select_from(TaskGoalLink)
-        .join(Task, Task.id == TaskGoalLink.task_id)
-        .where(and_(TaskGoalLink.goal_id == goal.id, Task.deleted_at.is_(None)))
+        .select_from(TaskDriverLink)
+        .join(Task, Task.id == TaskDriverLink.task_id)
+        .where(and_(TaskDriverLink.driver_id == driver.id, Task.deleted_at.is_(None)))
     )
-    if linked_active_tasks:
+    if linked_tasks:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Cannot archive goal while active tasks are linked.",
+            detail="Cannot archive driver while active tasks are linked.",
         )
 
-    before = serialize_model(goal)
-    goal.state = GoalState.archived
-    goal.deleted_at = utcnow()
-    goal.version += 1
+    linked_initiatives = db.scalar(
+        select(func.count())
+        .select_from(InitiativeDriverLink)
+        .join(Initiative, Initiative.id == InitiativeDriverLink.initiative_id)
+        .where(
+            and_(
+                InitiativeDriverLink.driver_id == driver.id,
+                Initiative.deleted_at.is_(None),
+            )
+        )
+    )
+    if linked_initiatives:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot archive driver while active initiatives are linked.",
+        )
+
+    before = serialize_model(driver)
+    driver.state = DriverState.archived
+    driver.deleted_at = utcnow()
+    driver.version += 1
     create_audit_event(
         db,
         actor_type=actor.actor_type,
         actor_id=actor.actor_id,
-        action="goal.archive",
-        entity_type="goal",
-        entity_id=goal.id,
+        action="driver.archive",
+        entity_type="driver",
+        entity_id=driver.id,
         request_id=request_id,
         before_json=before,
-        after_json=serialize_model(goal),
+        after_json=serialize_model(driver),
     )
     db.commit()
-    db.refresh(goal)
-    return goal
+    db.refresh(driver)
+    return driver
 
 
-@app.delete(f"{settings.api_prefix}/goals/{{goal_id}}/hard-delete", status_code=status.HTTP_200_OK)
-def hard_delete_goal(
-    goal_id: str,
+@app.delete(f"{settings.api_prefix}/drivers/{{driver_id}}/hard-delete", status_code=status.HTTP_200_OK)
+def hard_delete_driver(
+    driver_id: str,
     confirm: bool = Query(default=False),
     db: Session = Depends(get_db),
     actor: Actor = Depends(get_current_actor),
@@ -314,40 +378,276 @@ def hard_delete_goal(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Hard delete requires confirm=true.",
         )
-    goal = get_goal_or_404(db, goal_id, include_deleted=True)
-    if goal.is_default:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Default goal cannot be hard-deleted.",
-        )
-    children_count = db.scalar(select(func.count()).select_from(Goal).where(Goal.parent_goal_id == goal.id))
+    driver = get_driver_or_404(db, driver_id, include_deleted=True)
+    children_count = db.scalar(
+        select(func.count()).select_from(Driver).where(Driver.parent_driver_id == driver.id)
+    )
     if children_count:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Goal has child goals and cannot be hard-deleted.",
+            detail="Driver has child drivers and cannot be hard-deleted.",
         )
     task_link_count = db.scalar(
-        select(func.count()).select_from(TaskGoalLink).where(TaskGoalLink.goal_id == goal.id)
+        select(func.count()).select_from(TaskDriverLink).where(TaskDriverLink.driver_id == driver.id)
     )
-    if task_link_count:
+    initiative_link_count = db.scalar(
+        select(func.count())
+        .select_from(InitiativeDriverLink)
+        .where(InitiativeDriverLink.driver_id == driver.id)
+    )
+    if task_link_count or initiative_link_count:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Unlink goal from tasks before hard-delete.",
+            detail="Unlink driver from tasks/initiatives before hard-delete.",
         )
 
-    before = serialize_model(goal)
+    before = serialize_model(driver)
     create_audit_event(
         db,
         actor_type=actor.actor_type,
         actor_id=actor.actor_id,
-        action="goal.hard_delete",
-        entity_type="goal",
-        entity_id=goal.id,
+        action="driver.hard_delete",
+        entity_type="driver",
+        entity_id=driver.id,
         request_id=request_id,
         before_json=before,
         after_json={"deleted": True},
     )
-    db.delete(goal)
+    db.delete(driver)
+    db.commit()
+    return {"status": "deleted"}
+
+
+@app.get(f"{settings.api_prefix}/initiatives", response_model=list[InitiativeResponse])
+def list_initiatives(
+    include_deleted: bool = False,
+    state: InitiativeState | None = None,
+    driver_id: str | None = None,
+    query: str | None = None,
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+    _: Actor = Depends(get_current_actor),
+) -> list[InitiativeResponse]:
+    stmt = select(Initiative).order_by(Initiative.created_at.desc()).limit(limit).offset(offset)
+    if not include_deleted:
+        stmt = stmt.where(Initiative.deleted_at.is_(None))
+    if state:
+        stmt = stmt.where(Initiative.state == state)
+    if query:
+        like_term = f"%{query}%"
+        stmt = stmt.where(
+            or_(Initiative.title.ilike(like_term), Initiative.description.ilike(like_term))
+        )
+    if driver_id:
+        stmt = stmt.join(
+            InitiativeDriverLink, InitiativeDriverLink.initiative_id == Initiative.id
+        ).where(InitiativeDriverLink.driver_id == driver_id)
+
+    initiatives = list(db.scalars(stmt))
+    return [_initiative_response(db, initiative) for initiative in initiatives]
+
+
+@app.get(f"{settings.api_prefix}/initiatives/{{initiative_id}}", response_model=InitiativeResponse)
+def get_initiative(
+    initiative_id: str,
+    db: Session = Depends(get_db),
+    _: Actor = Depends(get_current_actor),
+) -> InitiativeResponse:
+    initiative = get_initiative_or_404(db, initiative_id)
+    return _initiative_response(db, initiative)
+
+
+@app.post(
+    f"{settings.api_prefix}/initiatives",
+    response_model=InitiativeResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_initiative(
+    payload: InitiativeCreate,
+    db: Session = Depends(get_db),
+    actor: Actor = Depends(get_current_actor),
+    request_id: str = Depends(get_request_id),
+) -> InitiativeResponse:
+    driver_ids = _dedupe_ids(payload.driver_ids)
+    _validate_due_window(payload.due_start_at, payload.due_end_at)
+    for driver_id in driver_ids:
+        driver = get_driver_or_404(db, driver_id)
+        ensure_driver_is_linkable(driver)
+
+    initiative = Initiative(
+        title=payload.title,
+        description=payload.description,
+        state=payload.state,
+        due_start_at=payload.due_start_at,
+        due_end_at=payload.due_end_at,
+        created_by=actor.actor_id,
+        updated_by=actor.actor_id,
+    )
+    db.add(initiative)
+    db.flush()
+
+    for driver_id in driver_ids:
+        db.add(InitiativeDriverLink(initiative_id=initiative.id, driver_id=driver_id))
+
+    create_audit_event(
+        db,
+        actor_type=actor.actor_type,
+        actor_id=actor.actor_id,
+        action="initiative.create",
+        entity_type="initiative",
+        entity_id=initiative.id,
+        request_id=request_id,
+        before_json=None,
+        after_json={"initiative": serialize_model(initiative), "driver_ids": driver_ids},
+    )
+    db.commit()
+    db.refresh(initiative)
+    return _initiative_response(db, initiative)
+
+
+@app.patch(f"{settings.api_prefix}/initiatives/{{initiative_id}}", response_model=InitiativeResponse)
+def update_initiative(
+    initiative_id: str,
+    payload: InitiativeUpdate,
+    db: Session = Depends(get_db),
+    actor: Actor = Depends(get_current_actor),
+    request_id: str = Depends(get_request_id),
+) -> InitiativeResponse:
+    initiative = get_initiative_or_404(db, initiative_id)
+    before = _initiative_response(db, initiative).model_dump(mode="json")
+    changes = payload.model_dump(exclude_unset=True)
+
+    due_start_at = changes.get("due_start_at", initiative.due_start_at)
+    due_end_at = changes.get("due_end_at", initiative.due_end_at)
+    _validate_due_window(due_start_at, due_end_at)
+
+    driver_ids = changes.pop("driver_ids", None)
+    if driver_ids is not None:
+        target_driver_ids = _dedupe_ids(driver_ids)
+        for driver_id in target_driver_ids:
+            driver = get_driver_or_404(db, driver_id)
+            ensure_driver_is_linkable(driver)
+
+        existing_links = list(
+            db.scalars(
+                select(InitiativeDriverLink).where(
+                    InitiativeDriverLink.initiative_id == initiative.id
+                )
+            )
+        )
+        existing_driver_ids = {link.driver_id for link in existing_links}
+        target_driver_set = set(target_driver_ids)
+
+        for link in existing_links:
+            if link.driver_id not in target_driver_set:
+                db.delete(link)
+        for driver_id in target_driver_ids:
+            if driver_id not in existing_driver_ids:
+                db.add(InitiativeDriverLink(initiative_id=initiative.id, driver_id=driver_id))
+
+    for key, value in changes.items():
+        setattr(initiative, key, value)
+
+    initiative.updated_by = actor.actor_id
+    initiative.version += 1
+    after = _initiative_response(db, initiative).model_dump(mode="json")
+
+    create_audit_event(
+        db,
+        actor_type=actor.actor_type,
+        actor_id=actor.actor_id,
+        action="initiative.update",
+        entity_type="initiative",
+        entity_id=initiative.id,
+        request_id=request_id,
+        before_json=before,
+        after_json=after,
+    )
+    db.commit()
+    db.refresh(initiative)
+    return _initiative_response(db, initiative)
+
+
+@app.delete(f"{settings.api_prefix}/initiatives/{{initiative_id}}", response_model=InitiativeResponse)
+def archive_initiative(
+    initiative_id: str,
+    db: Session = Depends(get_db),
+    actor: Actor = Depends(get_current_actor),
+    request_id: str = Depends(get_request_id),
+) -> InitiativeResponse:
+    initiative = get_initiative_or_404(db, initiative_id)
+    linked_active_tasks = db.scalar(
+        select(func.count()).select_from(Task).where(
+            and_(Task.initiative_id == initiative.id, Task.deleted_at.is_(None))
+        )
+    )
+    if linked_active_tasks:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot archive initiative while active tasks are linked.",
+        )
+
+    before = serialize_model(initiative)
+    initiative.state = InitiativeState.archived
+    initiative.deleted_at = utcnow()
+    initiative.updated_by = actor.actor_id
+    initiative.version += 1
+    create_audit_event(
+        db,
+        actor_type=actor.actor_type,
+        actor_id=actor.actor_id,
+        action="initiative.archive",
+        entity_type="initiative",
+        entity_id=initiative.id,
+        request_id=request_id,
+        before_json=before,
+        after_json=serialize_model(initiative),
+    )
+    db.commit()
+    db.refresh(initiative)
+    return _initiative_response(db, initiative)
+
+
+@app.delete(
+    f"{settings.api_prefix}/initiatives/{{initiative_id}}/hard-delete",
+    status_code=status.HTTP_200_OK,
+)
+def hard_delete_initiative(
+    initiative_id: str,
+    confirm: bool = Query(default=False),
+    db: Session = Depends(get_db),
+    actor: Actor = Depends(get_current_actor),
+    request_id: str = Depends(get_request_id),
+) -> dict[str, str]:
+    if not confirm:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Hard delete requires confirm=true.",
+        )
+    initiative = get_initiative_or_404(db, initiative_id, include_deleted=True)
+    linked_tasks = db.scalar(
+        select(func.count()).select_from(Task).where(Task.initiative_id == initiative.id)
+    )
+    if linked_tasks:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Unlink initiative from tasks before hard-delete.",
+        )
+
+    before = serialize_model(initiative)
+    create_audit_event(
+        db,
+        actor_type=actor.actor_type,
+        actor_id=actor.actor_id,
+        action="initiative.hard_delete",
+        entity_type="initiative",
+        entity_id=initiative.id,
+        request_id=request_id,
+        before_json=before,
+        after_json={"deleted": True},
+    )
+    db.delete(initiative)
     db.commit()
     return {"status": "deleted"}
 
@@ -355,7 +655,8 @@ def hard_delete_goal(
 @app.get(f"{settings.api_prefix}/tasks", response_model=list[TaskResponse])
 def list_tasks(
     include_deleted: bool = False,
-    goal_id: str | None = None,
+    initiative_id: str | None = None,
+    driver_id: str | None = None,
     status_filter: TaskStatus | None = Query(default=None, alias="status"),
     priority: TaskPriority | None = None,
     query: str | None = None,
@@ -374,8 +675,12 @@ def list_tasks(
     if query:
         like_term = f"%{query}%"
         stmt = stmt.where(or_(Task.title.ilike(like_term), Task.description.ilike(like_term)))
-    if goal_id:
-        stmt = stmt.join(TaskGoalLink, TaskGoalLink.task_id == Task.id).where(TaskGoalLink.goal_id == goal_id)
+    if initiative_id:
+        stmt = stmt.where(Task.initiative_id == initiative_id)
+    if driver_id:
+        stmt = stmt.join(TaskDriverLink, TaskDriverLink.task_id == Task.id).where(
+            TaskDriverLink.driver_id == driver_id
+        )
     tasks = list(db.scalars(stmt))
     return [_task_response(db, task) for task in tasks]
 
@@ -397,40 +702,43 @@ def create_task(
     actor: Actor = Depends(get_current_actor),
     request_id: str = Depends(get_request_id),
 ) -> TaskResponse:
-    goal_ids = list(dict.fromkeys(payload.goal_ids))
-    if not goal_ids:
-        goal_ids = [ensure_default_goal(db).id]
-    if payload.primary_goal_id and payload.primary_goal_id not in goal_ids:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="primary_goal_id must be included in goal_ids.",
-        )
+    driver_ids = _dedupe_ids(payload.driver_ids)
+    if payload.initiative_id:
+        initiative = get_initiative_or_404(db, payload.initiative_id)
+        ensure_initiative_is_linkable(initiative)
+    for driver_id in driver_ids:
+        driver = get_driver_or_404(db, driver_id)
+        ensure_driver_is_linkable(driver)
 
-    for goal_id in goal_ids:
-        goal = get_goal_or_404(db, goal_id)
-        ensure_goal_is_linkable(goal)
+    _validate_due_window(payload.due_start_at, payload.due_end_at)
+    _validate_recurrence(
+        payload.recurrence,
+        payload.recurrence_interval,
+        payload.recurrence_rule,
+        payload.recurrence_until,
+    )
 
     task = Task(
         title=payload.title,
         description=payload.description,
         status=payload.status,
         priority=payload.priority,
-        due_at=payload.due_at,
+        initiative_id=payload.initiative_id,
+        due_start_at=payload.due_start_at,
+        due_end_at=payload.due_end_at,
+        recurrence=payload.recurrence,
+        recurrence_interval=payload.recurrence_interval,
+        recurrence_rule=payload.recurrence_rule,
+        recurrence_until=payload.recurrence_until,
+        checklist_json=[item.model_dump() for item in payload.checklist_json],
         created_by=actor.actor_id,
         updated_by=actor.actor_id,
     )
     db.add(task)
     db.flush()
 
-    primary_goal_id = payload.primary_goal_id or goal_ids[0]
-    for goal_id in goal_ids:
-        db.add(
-            TaskGoalLink(
-                task_id=task.id,
-                goal_id=goal_id,
-                is_primary=goal_id == primary_goal_id,
-            )
-        )
+    for driver_id in driver_ids:
+        db.add(TaskDriverLink(task_id=task.id, driver_id=driver_id))
 
     create_audit_event(
         db,
@@ -441,7 +749,7 @@ def create_task(
         entity_id=task.id,
         request_id=request_id,
         before_json=None,
-        after_json={"task": serialize_model(task), "goal_ids": goal_ids, "primary_goal_id": primary_goal_id},
+        after_json={"task": serialize_model(task), "driver_ids": driver_ids},
     )
     db.commit()
     db.refresh(task)
@@ -457,12 +765,51 @@ def update_task(
     request_id: str = Depends(get_request_id),
 ) -> TaskResponse:
     task = get_task_or_404(db, task_id)
-    before = serialize_model(task)
+    before = _task_response(db, task).model_dump(mode="json")
+    changes = payload.model_dump(exclude_unset=True)
+    driver_ids = changes.pop("driver_ids", None)
 
-    for key, value in payload.model_dump(exclude_unset=True).items():
+    if "initiative_id" in changes and changes["initiative_id"]:
+        initiative = get_initiative_or_404(db, changes["initiative_id"])
+        ensure_initiative_is_linkable(initiative)
+
+    due_start_at = changes.get("due_start_at", task.due_start_at)
+    due_end_at = changes.get("due_end_at", task.due_end_at)
+    _validate_due_window(due_start_at, due_end_at)
+
+    _validate_recurrence(
+        changes.get("recurrence", task.recurrence),
+        changes.get("recurrence_interval", task.recurrence_interval),
+        changes.get("recurrence_rule", task.recurrence_rule),
+        changes.get("recurrence_until", task.recurrence_until),
+    )
+
+    if "checklist_json" in changes and changes["checklist_json"] is not None:
+        changes["checklist_json"] = [item.model_dump() for item in changes["checklist_json"]]
+
+    if driver_ids is not None:
+        target_driver_ids = _dedupe_ids(driver_ids)
+        for driver_id in target_driver_ids:
+            driver = get_driver_or_404(db, driver_id)
+            ensure_driver_is_linkable(driver)
+        existing_links = list(
+            db.scalars(select(TaskDriverLink).where(TaskDriverLink.task_id == task.id))
+        )
+        existing_driver_ids = {link.driver_id for link in existing_links}
+        target_driver_set = set(target_driver_ids)
+
+        for link in existing_links:
+            if link.driver_id not in target_driver_set:
+                db.delete(link)
+        for driver_id in target_driver_ids:
+            if driver_id not in existing_driver_ids:
+                db.add(TaskDriverLink(task_id=task.id, driver_id=driver_id))
+
+    for key, value in changes.items():
         setattr(task, key, value)
     task.updated_by = actor.actor_id
     task.version += 1
+    after = _task_response(db, task).model_dump(mode="json")
 
     create_audit_event(
         db,
@@ -473,7 +820,7 @@ def update_task(
         entity_id=task.id,
         request_id=request_id,
         before_json=before,
-        after_json=serialize_model(task),
+        after_json=after,
     )
     db.commit()
     db.refresh(task)
@@ -541,42 +888,23 @@ def hard_delete_task(
     return {"status": "deleted"}
 
 
-@app.post(f"{settings.api_prefix}/tasks/{{task_id}}/links/goals", response_model=TaskResponse)
-def link_task_goals(
+@app.post(f"{settings.api_prefix}/tasks/{{task_id}}/links/drivers", response_model=TaskResponse)
+def link_task_drivers(
     task_id: str,
-    payload: LinkGoalsRequest,
+    payload: LinkDriversRequest,
     db: Session = Depends(get_db),
     actor: Actor = Depends(get_current_actor),
     request_id: str = Depends(get_request_id),
 ) -> TaskResponse:
     task = get_task_or_404(db, task_id)
     before = _task_response(db, task).model_dump(mode="json")
-    goal_ids = list(dict.fromkeys(payload.goal_ids))
-    for goal_id in goal_ids:
-        goal = get_goal_or_404(db, goal_id)
-        ensure_goal_is_linkable(goal)
-        existing = db.scalar(
-            select(TaskGoalLink).where(
-                and_(TaskGoalLink.task_id == task.id, TaskGoalLink.goal_id == goal_id)
-            )
-        )
-        if not existing:
-            db.add(TaskGoalLink(task_id=task.id, goal_id=goal_id, is_primary=False))
+    driver_ids = _dedupe_ids(payload.driver_ids)
+    for driver_id in driver_ids:
+        driver = get_driver_or_404(db, driver_id)
+        ensure_driver_is_linkable(driver)
+        if not task_has_driver_link(db, task.id, driver_id):
+            db.add(TaskDriverLink(task_id=task.id, driver_id=driver_id))
 
-    db.flush()
-    target_primary = payload.primary_goal_id
-    if target_primary and target_primary not in get_task_goal_ids(db, task.id):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="primary_goal_id must be linked to the task.",
-        )
-    if not target_primary:
-        target_primary = get_primary_goal_id(db, task.id) or get_task_goal_ids(db, task.id)[0]
-
-    for link in db.scalars(select(TaskGoalLink).where(TaskGoalLink.task_id == task.id)):
-        link.is_primary = link.goal_id == target_primary
-
-    ensure_task_has_goal_links(db, task.id)
     task.updated_by = actor.actor_id
     task.version += 1
     after = _task_response(db, task).model_dump(mode="json")
@@ -585,7 +913,7 @@ def link_task_goals(
         db,
         actor_type=actor.actor_type,
         actor_id=actor.actor_id,
-        action="task.link_goals",
+        action="task.link_drivers",
         entity_type="task",
         entity_id=task.id,
         request_id=request_id,
@@ -597,10 +925,12 @@ def link_task_goals(
     return _task_response(db, task)
 
 
-@app.delete(f"{settings.api_prefix}/tasks/{{task_id}}/links/goals/{{goal_id}}", response_model=TaskResponse)
-def unlink_task_goal(
+@app.delete(
+    f"{settings.api_prefix}/tasks/{{task_id}}/links/drivers/{{driver_id}}", response_model=TaskResponse
+)
+def unlink_task_driver(
     task_id: str,
-    goal_id: str,
+    driver_id: str,
     db: Session = Depends(get_db),
     actor: Actor = Depends(get_current_actor),
     request_id: str = Depends(get_request_id),
@@ -608,28 +938,13 @@ def unlink_task_goal(
     task = get_task_or_404(db, task_id)
     before = _task_response(db, task).model_dump(mode="json")
     link = db.scalar(
-        select(TaskGoalLink).where(and_(TaskGoalLink.task_id == task_id, TaskGoalLink.goal_id == goal_id))
+        select(TaskDriverLink).where(
+            and_(TaskDriverLink.task_id == task_id, TaskDriverLink.driver_id == driver_id)
+        )
     )
     if not link:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Goal link not found.")
-
-    count = db.scalar(select(func.count()).select_from(TaskGoalLink).where(TaskGoalLink.task_id == task_id))
-    if count <= 1:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Task must remain linked to at least one goal.",
-        )
-
-    was_primary = link.is_primary
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Driver link not found.")
     db.delete(link)
-    db.flush()
-
-    if was_primary:
-        replacement = db.scalar(select(TaskGoalLink).where(TaskGoalLink.task_id == task_id))
-        if replacement:
-            replacement.is_primary = True
-
-    ensure_task_has_goal_links(db, task_id)
     task.updated_by = actor.actor_id
     task.version += 1
     after = _task_response(db, task).model_dump(mode="json")
@@ -638,7 +953,7 @@ def unlink_task_goal(
         db,
         actor_type=actor.actor_type,
         actor_id=actor.actor_id,
-        action="task.unlink_goal",
+        action="task.unlink_driver",
         entity_type="task",
         entity_id=task.id,
         request_id=request_id,
@@ -760,35 +1075,125 @@ def delete_task_reason(
     return {"status": "deleted"}
 
 
-@app.get(f"{settings.api_prefix}/goals/{{goal_id}}/reasons", response_model=list[GoalReasonResponse])
-def list_goal_reasons(
-    goal_id: str,
+@app.post(
+    f"{settings.api_prefix}/initiatives/{{initiative_id}}/links/drivers",
+    response_model=InitiativeResponse,
+)
+def link_initiative_drivers(
+    initiative_id: str,
+    payload: LinkDriversRequest,
+    db: Session = Depends(get_db),
+    actor: Actor = Depends(get_current_actor),
+    request_id: str = Depends(get_request_id),
+) -> InitiativeResponse:
+    initiative = get_initiative_or_404(db, initiative_id)
+    before = _initiative_response(db, initiative).model_dump(mode="json")
+    driver_ids = _dedupe_ids(payload.driver_ids)
+    for driver_id in driver_ids:
+        driver = get_driver_or_404(db, driver_id)
+        ensure_driver_is_linkable(driver)
+        if not initiative_has_driver_link(db, initiative.id, driver_id):
+            db.add(InitiativeDriverLink(initiative_id=initiative.id, driver_id=driver_id))
+
+    initiative.updated_by = actor.actor_id
+    initiative.version += 1
+    after = _initiative_response(db, initiative).model_dump(mode="json")
+    create_audit_event(
+        db,
+        actor_type=actor.actor_type,
+        actor_id=actor.actor_id,
+        action="initiative.link_drivers",
+        entity_type="initiative",
+        entity_id=initiative.id,
+        request_id=request_id,
+        before_json=before,
+        after_json=after,
+    )
+    db.commit()
+    db.refresh(initiative)
+    return _initiative_response(db, initiative)
+
+
+@app.delete(
+    f"{settings.api_prefix}/initiatives/{{initiative_id}}/links/drivers/{{driver_id}}",
+    response_model=InitiativeResponse,
+)
+def unlink_initiative_driver(
+    initiative_id: str,
+    driver_id: str,
+    db: Session = Depends(get_db),
+    actor: Actor = Depends(get_current_actor),
+    request_id: str = Depends(get_request_id),
+) -> InitiativeResponse:
+    initiative = get_initiative_or_404(db, initiative_id)
+    before = _initiative_response(db, initiative).model_dump(mode="json")
+    link = db.scalar(
+        select(InitiativeDriverLink).where(
+            and_(
+                InitiativeDriverLink.initiative_id == initiative_id,
+                InitiativeDriverLink.driver_id == driver_id,
+            )
+        )
+    )
+    if not link:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Driver link not found.")
+
+    db.delete(link)
+    initiative.updated_by = actor.actor_id
+    initiative.version += 1
+    after = _initiative_response(db, initiative).model_dump(mode="json")
+    create_audit_event(
+        db,
+        actor_type=actor.actor_type,
+        actor_id=actor.actor_id,
+        action="initiative.unlink_driver",
+        entity_type="initiative",
+        entity_id=initiative.id,
+        request_id=request_id,
+        before_json=before,
+        after_json=after,
+    )
+    db.commit()
+    db.refresh(initiative)
+    return _initiative_response(db, initiative)
+
+
+@app.get(
+    f"{settings.api_prefix}/initiatives/{{initiative_id}}/reasons",
+    response_model=list[InitiativeReasonResponse],
+)
+def list_initiative_reasons(
+    initiative_id: str,
     include_deleted: bool = False,
     db: Session = Depends(get_db),
     _actor: Actor = Depends(get_current_actor),
-) -> list[GoalReason]:
-    get_goal_or_404(db, goal_id, include_deleted=True)
-    stmt = select(GoalReason).where(GoalReason.goal_id == goal_id).order_by(GoalReason.created_at.desc())
+) -> list[InitiativeReason]:
+    get_initiative_or_404(db, initiative_id, include_deleted=True)
+    stmt = (
+        select(InitiativeReason)
+        .where(InitiativeReason.initiative_id == initiative_id)
+        .order_by(InitiativeReason.created_at.desc())
+    )
     if not include_deleted:
-        stmt = stmt.where(GoalReason.deleted_at.is_(None))
+        stmt = stmt.where(InitiativeReason.deleted_at.is_(None))
     return list(db.scalars(stmt))
 
 
 @app.post(
-    f"{settings.api_prefix}/goals/{{goal_id}}/reasons",
-    response_model=GoalReasonResponse,
+    f"{settings.api_prefix}/initiatives/{{initiative_id}}/reasons",
+    response_model=InitiativeReasonResponse,
     status_code=status.HTTP_201_CREATED,
 )
-def add_goal_reason(
-    goal_id: str,
+def add_initiative_reason(
+    initiative_id: str,
     payload: ReasonCreate,
     db: Session = Depends(get_db),
     actor: Actor = Depends(get_current_actor),
     request_id: str = Depends(get_request_id),
-) -> GoalReason:
-    get_goal_or_404(db, goal_id, include_deleted=True)
-    reason = GoalReason(
-        goal_id=goal_id,
+) -> InitiativeReason:
+    get_initiative_or_404(db, initiative_id, include_deleted=True)
+    reason = InitiativeReason(
+        initiative_id=initiative_id,
         reason_text=payload.reason_text,
         author_type=actor.actor_type,
         author_id=actor.actor_id,
@@ -799,72 +1204,75 @@ def add_goal_reason(
         db,
         actor_type=actor.actor_type,
         actor_id=actor.actor_id,
-        action="goal_reason.create",
-        entity_type="goal_reason",
+        action="initiative_reason.create",
+        entity_type="initiative_reason",
         entity_id=reason.id,
         request_id=request_id,
         before_json=None,
         after_json=serialize_model(reason),
-        metadata_json={"goal_id": goal_id},
+        metadata_json={"initiative_id": initiative_id},
     )
     db.commit()
     db.refresh(reason)
     return reason
 
 
-@app.patch(f"{settings.api_prefix}/goals/reasons/{{reason_id}}", response_model=GoalReasonResponse)
-def update_goal_reason(
+@app.patch(
+    f"{settings.api_prefix}/initiatives/reasons/{{reason_id}}",
+    response_model=InitiativeReasonResponse,
+)
+def update_initiative_reason(
     reason_id: str,
     payload: ReasonUpdate,
     db: Session = Depends(get_db),
     actor: Actor = Depends(get_current_actor),
     request_id: str = Depends(get_request_id),
-) -> GoalReason:
-    reason = db.scalar(select(GoalReason).where(GoalReason.id == reason_id))
+) -> InitiativeReason:
+    reason = db.scalar(select(InitiativeReason).where(InitiativeReason.id == reason_id))
     if not reason:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Goal reason not found.")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Initiative reason not found.")
     before = serialize_model(reason)
     reason.reason_text = payload.reason_text
     create_audit_event(
         db,
         actor_type=actor.actor_type,
         actor_id=actor.actor_id,
-        action="goal_reason.update",
-        entity_type="goal_reason",
+        action="initiative_reason.update",
+        entity_type="initiative_reason",
         entity_id=reason.id,
         request_id=request_id,
         before_json=before,
         after_json=serialize_model(reason),
-        metadata_json={"goal_id": reason.goal_id},
+        metadata_json={"initiative_id": reason.initiative_id},
     )
     db.commit()
     db.refresh(reason)
     return reason
 
 
-@app.delete(f"{settings.api_prefix}/goals/reasons/{{reason_id}}", status_code=status.HTTP_200_OK)
-def delete_goal_reason(
+@app.delete(f"{settings.api_prefix}/initiatives/reasons/{{reason_id}}", status_code=status.HTTP_200_OK)
+def delete_initiative_reason(
     reason_id: str,
     db: Session = Depends(get_db),
     actor: Actor = Depends(get_current_actor),
     request_id: str = Depends(get_request_id),
 ) -> dict[str, str]:
-    reason = db.scalar(select(GoalReason).where(GoalReason.id == reason_id))
+    reason = db.scalar(select(InitiativeReason).where(InitiativeReason.id == reason_id))
     if not reason:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Goal reason not found.")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Initiative reason not found.")
     before = serialize_model(reason)
     reason.deleted_at = utcnow()
     create_audit_event(
         db,
         actor_type=actor.actor_type,
         actor_id=actor.actor_id,
-        action="goal_reason.delete",
-        entity_type="goal_reason",
+        action="initiative_reason.delete",
+        entity_type="initiative_reason",
         entity_id=reason.id,
         request_id=request_id,
         before_json=before,
         after_json=serialize_model(reason),
-        metadata_json={"goal_id": reason.goal_id},
+        metadata_json={"initiative_id": reason.initiative_id},
     )
     db.commit()
     return {"status": "deleted"}

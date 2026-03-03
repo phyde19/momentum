@@ -5,10 +5,12 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import "./index.css";
 import { RootLayout } from "./routes/root";
+import { DriverDetailPage } from "./routes/driver-detail";
+import { DriversPage } from "./routes/drivers";
+import { InitiativeDetailPage } from "./routes/initiative-detail";
+import { InitiativesPage } from "./routes/initiatives";
 import { TasksPage } from "./routes/tasks";
 import { TaskDetailPage } from "./routes/task-detail";
-import { GoalsPage } from "./routes/goals";
-import { GoalDetailPage } from "./routes/goal-detail";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -29,9 +31,12 @@ const router = createBrowserRouter([
       { path: "tasks", element: <TasksPage /> },
       { path: "tasks/new", element: <TaskDetailPage /> },
       { path: "tasks/:taskId", element: <TaskDetailPage /> },
-      { path: "goals", element: <GoalsPage /> },
-      { path: "goals/new", element: <GoalDetailPage /> },
-      { path: "goals/:goalId", element: <GoalDetailPage /> },
+      { path: "initiatives", element: <InitiativesPage /> },
+      { path: "initiatives/new", element: <InitiativeDetailPage /> },
+      { path: "initiatives/:initiativeId", element: <InitiativeDetailPage /> },
+      { path: "drivers", element: <DriversPage /> },
+      { path: "drivers/new", element: <DriverDetailPage /> },
+      { path: "drivers/:driverId", element: <DriverDetailPage /> },
     ],
   },
 ]);

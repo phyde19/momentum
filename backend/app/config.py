@@ -22,16 +22,6 @@ class Settings(BaseSettings):
     api_prefix: str = Field(default="/v1", alias="API_PREFIX")
     auto_migrate: bool = Field(default=True, alias="AUTO_MIGRATE")
 
-    default_goal_title: str = Field(default="Task Maintenance", alias="DEFAULT_GOAL_TITLE")
-    default_goal_description: str = Field(
-        default="System default goal used when task creation omits explicit goals.",
-        alias="DEFAULT_GOAL_DESCRIPTION",
-    )
-    default_goal_type: Literal["path", "vehicle", "general"] = Field(
-        default="vehicle",
-        alias="DEFAULT_GOAL_TYPE",
-    )
-
     auth_mode: Literal["dev", "cloudflare"] = Field(default="dev", alias="AUTH_MODE")
     dev_auth_email: str = Field(default="owner@example.com", alias="DEV_AUTH_EMAIL")
 

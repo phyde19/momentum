@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import { Link, useSearchParams } from "react-router";
 import { CheckSquare, Plus, Search, Archive, X } from "lucide-react";
-import { useTasks, useGoals, useArchiveTask } from "../lib/hooks";
+import { useArchiveTask, useInitiatives, useTasks } from "../lib/hooks";
 import type { TaskStatus, TaskPriority } from "../lib/types";
 import { StatusBadge, PriorityBadge } from "../components/badges";
 import { EmptyState } from "../components/empty-state";
@@ -37,15 +37,15 @@ export function TasksPage() {
     query: search || undefined,
   });
 
-  const { data: goals } = useGoals();
+  const { data: initiatives } = useInitiatives();
   const archiveMutation = useArchiveTask();
 
-  // Build a quick lookup of goal ID -> title
-  const goalMap = useMemo(() => {
+  // Build a quick lookup of initiative ID -> title
+  const initiativeMap = useMemo(() => {
     const map = new Map<string, string>();
-    goals?.forEach((g) => map.set(g.id, g.title));
+    initiatives?.forEach((initiative) => map.set(initiative.id, initiative.title));
     return map;
-  }, [goals]);
+  }, [initiatives]);
 
   function updateFilter(key: string, value: string) {
     setSearchParams((prev) => {
@@ -167,7 +167,7 @@ export function TasksPage() {
                 )}
               />
 
-              {/* Title + goal */}
+              {/* Title + initiative */}
               <div className="min-w-0 flex-1">
                 <p
                   className={cn(
@@ -179,9 +179,9 @@ export function TasksPage() {
                 >
                   {task.title}
                 </p>
-                {task.primary_goal_id && goalMap.get(task.primary_goal_id) && (
+                {task.initiative_id && initiativeMap.get(task.initiative_id) && (
                   <p className="mt-0.5 truncate text-xs text-zinc-400">
-                    {goalMap.get(task.primary_goal_id)}
+                    {initiativeMap.get(task.initiative_id)}
                   </p>
                 )}
               </div>
@@ -193,9 +193,9 @@ export function TasksPage() {
               </div>
 
               {/* Due date */}
-              {task.due_at && (
+              {(task.due_end_at || task.due_start_at) && (
                 <span className="hidden shrink-0 text-xs text-zinc-400 md:block">
-                  {formatDate(task.due_at)}
+                  {formatDate(task.due_end_at ?? task.due_start_at)}
                 </span>
               )}
 

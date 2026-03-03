@@ -1,5 +1,5 @@
 import { cn } from "../lib/utils";
-import type { GoalState, GoalType, TaskPriority, TaskStatus } from "../lib/types";
+import type { DriverType, InitiativeState, TaskPriority, TaskStatus } from "../lib/types";
 
 // ── Status badge ────────────────────────────────────────────────────────────
 
@@ -61,36 +61,38 @@ export function PriorityBadge({ priority }: { priority: TaskPriority }) {
   );
 }
 
-// ── Goal type badge ─────────────────────────────────────────────────────────
+// ── Driver type badge ───────────────────────────────────────────────────────
 
-const goalTypeStyles: Record<GoalType, string> = {
-  path: "bg-violet-50 text-violet-700 ring-1 ring-inset ring-violet-600/20",
-  vehicle: "bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-600/20",
-  general: "bg-zinc-100 text-zinc-600",
+const driverTypeStyles: Record<DriverType, string> = {
+  obligation: "bg-indigo-50 text-indigo-700 ring-1 ring-inset ring-indigo-600/20",
+  risk: "bg-red-50 text-red-700 ring-1 ring-inset ring-red-600/20",
+  leverage: "bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-600/20",
+  surplus: "bg-violet-50 text-violet-700 ring-1 ring-inset ring-violet-600/20",
 };
 
-const goalTypeLabels: Record<GoalType, string> = {
-  path: "Path",
-  vehicle: "Vehicle",
-  general: "General",
+const driverTypeLabels: Record<DriverType, string> = {
+  obligation: "Obligation",
+  risk: "Risk",
+  leverage: "Leverage",
+  surplus: "Surplus",
 };
 
-export function GoalTypeBadge({ type }: { type: GoalType }) {
+export function DriverTypeBadge({ type }: { type: DriverType }) {
   return (
     <span
       className={cn(
         "inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium",
-        goalTypeStyles[type],
+        driverTypeStyles[type],
       )}
     >
-      {goalTypeLabels[type]}
+      {driverTypeLabels[type]}
     </span>
   );
 }
 
-// ── Goal state badge ────────────────────────────────────────────────────────
+// ── Initiative state badge ──────────────────────────────────────────────────
 
-const goalStateStyles: Record<GoalState, string> = {
+const initiativeStateStyles: Record<InitiativeState, string> = {
   active: "bg-emerald-50 text-emerald-700",
   paused: "bg-amber-50 text-amber-700",
   abandoned: "bg-zinc-100 text-zinc-500",
@@ -98,7 +100,7 @@ const goalStateStyles: Record<GoalState, string> = {
   archived: "bg-zinc-100 text-zinc-400",
 };
 
-const goalStateLabels: Record<GoalState, string> = {
+const initiativeStateLabels: Record<InitiativeState, string> = {
   active: "Active",
   paused: "Paused",
   abandoned: "Abandoned",
@@ -106,15 +108,15 @@ const goalStateLabels: Record<GoalState, string> = {
   archived: "Archived",
 };
 
-export function GoalStateBadge({ state }: { state: GoalState }) {
+export function InitiativeStateBadge({ state }: { state: InitiativeState }) {
   return (
     <span
       className={cn(
         "inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium",
-        goalStateStyles[state],
+        initiativeStateStyles[state],
       )}
     >
-      {goalStateLabels[state]}
+      {initiativeStateLabels[state]}
     </span>
   );
 }

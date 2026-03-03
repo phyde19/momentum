@@ -1,13 +1,15 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "./api";
 import type {
-  GoalCreate,
-  GoalListParams,
-  GoalUpdate,
-  LinkGoalsRequest,
+  DriverCreate,
+  DriverListParams,
+  DriverUpdate,
+  InitiativeCreate,
+  InitiativeListParams,
+  InitiativeUpdate,
+  LinkDriversRequest,
   ReasonCreate,
   ReasonUpdate,
-  Task,
   TaskCreate,
   TaskListParams,
   TaskUpdate,
@@ -19,9 +21,12 @@ export const queryKeys = {
   tasks: (params?: TaskListParams) => ["tasks", params ?? {}] as const,
   task: (id: string) => ["tasks", id] as const,
   taskReasons: (taskId: string) => ["tasks", taskId, "reasons"] as const,
-  goals: (params?: GoalListParams) => ["goals", params ?? {}] as const,
-  goal: (id: string) => ["goals", id] as const,
-  goalReasons: (goalId: string) => ["goals", goalId, "reasons"] as const,
+  initiatives: (params?: InitiativeListParams) => ["initiatives", params ?? {}] as const,
+  initiative: (id: string) => ["initiatives", id] as const,
+  initiativeReasons: (initiativeId: string) => ["initiatives", initiativeId, "reasons"] as const,
+  drivers: (params?: DriverListParams) => ["drivers", params ?? {}] as const,
+  driver: (id: string) => ["drivers", id] as const,
+  driversTree: () => ["drivers", "tree"] as const,
 };
 
 // ── Task hooks ──────────────────────────────────────────────────────────────
@@ -72,22 +77,22 @@ export function useArchiveTask() {
   });
 }
 
-export function useLinkTaskGoals() {
+export function useLinkTaskDrivers() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ taskId, data }: { taskId: string; data: LinkGoalsRequest }) =>
-      api.linkTaskGoals(taskId, data),
+    mutationFn: ({ taskId, data }: { taskId: string; data: LinkDriversRequest }) =>
+      api.linkTaskDrivers(taskId, data),
     onSuccess: (_result, vars) => {
       qc.invalidateQueries({ queryKey: queryKeys.task(vars.taskId) });
     },
   });
 }
 
-export function useUnlinkTaskGoal() {
+export function useUnlinkTaskDriver() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ taskId, goalId }: { taskId: string; goalId: string }) =>
-      api.unlinkTaskGoal(taskId, goalId),
+    mutationFn: ({ taskId, driverId }: { taskId: string; driverId: string }) =>
+      api.unlinkTaskDriver(taskId, driverId),
     onSuccess: (_result, vars) => {
       qc.invalidateQueries({ queryKey: queryKeys.task(vars.taskId) });
     },
@@ -144,100 +149,177 @@ export function useDeleteTaskReason() {
   });
 }
 
-// ── Goal hooks ──────────────────────────────────────────────────────────────
+// ── Initiative hooks ────────────────────────────────────────────────────────
 
-export function useGoals(params?: GoalListParams) {
+export function useInitiatives(params?: InitiativeListParams) {
   return useQuery({
-    queryKey: queryKeys.goals(params),
-    queryFn: () => api.listGoals(params),
+    queryKey: queryKeys.initiatives(params),
+    queryFn: () => api.listInitiatives(params),
   });
 }
 
-export function useGoal(id: string | undefined) {
+export function useInitiative(id: string | undefined) {
   return useQuery({
-    queryKey: queryKeys.goal(id!),
-    queryFn: () => api.getGoal(id!),
+    queryKey: queryKeys.initiative(id!),
+    queryFn: () => api.getInitiative(id!),
     enabled: !!id,
   });
 }
 
-export function useCreateGoal() {
+export function useCreateInitiative() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (data: GoalCreate) => api.createGoal(data),
+    mutationFn: (data: InitiativeCreate) => api.createInitiative(data),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["goals"] });
+      qc.invalidateQueries({ queryKey: ["initiatives"] });
     },
   });
 }
 
-export function useUpdateGoal() {
+export function useUpdateInitiative() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, data }: { id: string; data: GoalUpdate }) => api.updateGoal(id, data),
+    mutationFn: ({ id, data }: { id: string; data: InitiativeUpdate }) => api.updateInitiative(id, data),
     onSuccess: (_result, vars) => {
-      qc.invalidateQueries({ queryKey: ["goals"] });
-      qc.invalidateQueries({ queryKey: queryKeys.goal(vars.id) });
+      qc.invalidateQueries({ queryKey: ["initiatives"] });
+      qc.invalidateQueries({ queryKey: queryKeys.initiative(vars.id) });
     },
   });
 }
 
-export function useArchiveGoal() {
+export function useArchiveInitiative() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => api.archiveGoal(id),
+    mutationFn: (id: string) => api.archiveInitiative(id),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["goals"] });
+      qc.invalidateQueries({ queryKey: ["initiatives"] });
     },
   });
 }
 
-// ── Goal reason hooks ───────────────────────────────────────────────────────
+export function useLinkInitiativeDrivers() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ initiativeId, data }: { initiativeId: string; data: LinkDriversRequest }) =>
+      api.linkInitiativeDrivers(initiativeId, data),
+    onSuccess: (_result, vars) => {
+      qc.invalidateQueries({ queryKey: queryKeys.initiative(vars.initiativeId) });
+    },
+  });
+}
 
-export function useGoalReasons(goalId: string | undefined) {
+export function useUnlinkInitiativeDriver() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ initiativeId, driverId }: { initiativeId: string; driverId: string }) =>
+      api.unlinkInitiativeDriver(initiativeId, driverId),
+    onSuccess: (_result, vars) => {
+      qc.invalidateQueries({ queryKey: queryKeys.initiative(vars.initiativeId) });
+    },
+  });
+}
+
+// ── Initiative reason hooks ────────────────────────────────────────────────
+
+export function useInitiativeReasons(initiativeId: string | undefined) {
   return useQuery({
-    queryKey: queryKeys.goalReasons(goalId!),
-    queryFn: () => api.listGoalReasons(goalId!),
-    enabled: !!goalId,
+    queryKey: queryKeys.initiativeReasons(initiativeId!),
+    queryFn: () => api.listInitiativeReasons(initiativeId!),
+    enabled: !!initiativeId,
   });
 }
 
-export function useAddGoalReason() {
+export function useAddInitiativeReason() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ goalId, data }: { goalId: string; data: ReasonCreate }) =>
-      api.addGoalReason(goalId, data),
+    mutationFn: ({ initiativeId, data }: { initiativeId: string; data: ReasonCreate }) =>
+      api.addInitiativeReason(initiativeId, data),
     onSuccess: (_result, vars) => {
-      qc.invalidateQueries({ queryKey: queryKeys.goalReasons(vars.goalId) });
+      qc.invalidateQueries({ queryKey: queryKeys.initiativeReasons(vars.initiativeId) });
     },
   });
 }
 
-export function useUpdateGoalReason() {
+export function useUpdateInitiativeReason() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({
       reasonId,
-      goalId,
+      initiativeId,
       data,
     }: {
       reasonId: string;
-      goalId: string;
+      initiativeId: string;
       data: ReasonUpdate;
-    }) => api.updateGoalReason(reasonId, data),
+    }) => api.updateInitiativeReason(reasonId, data),
     onSuccess: (_result, vars) => {
-      qc.invalidateQueries({ queryKey: queryKeys.goalReasons(vars.goalId) });
+      qc.invalidateQueries({ queryKey: queryKeys.initiativeReasons(vars.initiativeId) });
     },
   });
 }
 
-export function useDeleteGoalReason() {
+export function useDeleteInitiativeReason() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ reasonId, goalId }: { reasonId: string; goalId: string }) =>
-      api.deleteGoalReason(reasonId),
+    mutationFn: ({ reasonId, initiativeId }: { reasonId: string; initiativeId: string }) =>
+      api.deleteInitiativeReason(reasonId),
     onSuccess: (_result, vars) => {
-      qc.invalidateQueries({ queryKey: queryKeys.goalReasons(vars.goalId) });
+      qc.invalidateQueries({ queryKey: queryKeys.initiativeReasons(vars.initiativeId) });
+    },
+  });
+}
+
+// ── Driver hooks ────────────────────────────────────────────────────────────
+
+export function useDrivers(params?: DriverListParams) {
+  return useQuery({
+    queryKey: queryKeys.drivers(params),
+    queryFn: () => api.listDrivers(params),
+  });
+}
+
+export function useDriver(id: string | undefined) {
+  return useQuery({
+    queryKey: queryKeys.driver(id!),
+    queryFn: () => api.getDriver(id!),
+    enabled: !!id,
+  });
+}
+
+export function useDriversTree() {
+  return useQuery({
+    queryKey: queryKeys.driversTree(),
+    queryFn: () => api.getDriversTree(),
+  });
+}
+
+export function useCreateDriver() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: DriverCreate) => api.createDriver(data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["drivers"] });
+    },
+  });
+}
+
+export function useUpdateDriver() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: DriverUpdate }) => api.updateDriver(id, data),
+    onSuccess: (_result, vars) => {
+      qc.invalidateQueries({ queryKey: ["drivers"] });
+      qc.invalidateQueries({ queryKey: queryKeys.driver(vars.id) });
+    },
+  });
+}
+
+export function useArchiveDriver() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.archiveDriver(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["drivers"] });
     },
   });
 }

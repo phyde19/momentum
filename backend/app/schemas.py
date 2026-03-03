@@ -4,77 +4,83 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.models import ActorType, GoalState, GoalType, TaskPriority, TaskStatus
+from app.models import (
+    ActorType,
+    DriverState,
+    DriverType,
+    InitiativeState,
+    TaskPriority,
+    TaskRecurrence,
+    TaskStatus,
+)
 
 
-class GoalBase(BaseModel):
+class DriverBase(BaseModel):
     title: str = Field(min_length=1, max_length=255)
     description: str | None = None
-    goal_type: GoalType = GoalType.general
-    state: GoalState = GoalState.active
-    parent_goal_id: str | None = None
+    driver_type: DriverType
+    state: DriverState = DriverState.active
+    parent_driver_id: str | None = None
 
 
-class GoalCreate(GoalBase):
+class DriverCreate(DriverBase):
     pass
 
 
-class GoalUpdate(BaseModel):
+class DriverUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=255)
     description: str | None = None
-    goal_type: GoalType | None = None
-    state: GoalState | None = None
-    parent_goal_id: str | None = None
+    driver_type: DriverType | None = None
+    state: DriverState | None = None
+    parent_driver_id: str | None = None
 
 
-class GoalResponse(GoalBase):
+class DriverResponse(DriverBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
-    is_default: bool
     created_at: datetime
     updated_at: datetime
     deleted_at: datetime | None
     version: int
 
 
-class GoalTreeNode(BaseModel):
+class DriverTreeNode(BaseModel):
     id: str
     title: str
     description: str | None
-    goal_type: GoalType
-    state: GoalState
-    is_default: bool
-    children: list["GoalTreeNode"] = Field(default_factory=list)
+    driver_type: DriverType
+    state: DriverState
+    parent_driver_id: str | None
+    children: list["DriverTreeNode"] = Field(default_factory=list)
 
 
-class TaskBase(BaseModel):
+class InitiativeBase(BaseModel):
     title: str = Field(min_length=1, max_length=255)
     description: str | None = None
-    status: TaskStatus = TaskStatus.todo
-    priority: TaskPriority = TaskPriority.medium
-    due_at: datetime | None = None
+    state: InitiativeState = InitiativeState.active
+    due_start_at: datetime | None = None
+    due_end_at: datetime | None = None
 
 
-class TaskCreate(TaskBase):
-    goal_ids: list[str] = Field(default_factory=list)
-    primary_goal_id: str | None = None
+class InitiativeCreate(InitiativeBase):
+    driver_ids: list[str] = Field(default_factory=list)
 
 
-class TaskUpdate(BaseModel):
+class InitiativeUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=255)
     description: str | None = None
-    status: TaskStatus | None = None
-    priority: TaskPriority | None = None
-    due_at: datetime | None = None
+    state: InitiativeState | None = None
+    due_start_at: datetime | None = None
+    due_end_at: datetime | None = None
+    driver_ids: list[str] | None = None
 
 
-class TaskResponse(TaskBase):
+class InitiativeResponse(InitiativeBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
-    goal_ids: list[str]
-    primary_goal_id: str | None
+    driver_ids: list[str]
     created_by: str
     updated_by: str
     created_at: datetime
@@ -83,9 +89,61 @@ class TaskResponse(TaskBase):
     version: int
 
 
-class LinkGoalsRequest(BaseModel):
-    goal_ids: list[str] = Field(min_length=1)
-    primary_goal_id: str | None = None
+class ChecklistItem(BaseModel):
+    title: str = Field(min_length=1, max_length=255)
+    is_done: bool = False
+
+
+class TaskBase(BaseModel):
+    title: str = Field(min_length=1, max_length=255)
+    description: str | None = None
+    status: TaskStatus = TaskStatus.todo
+    priority: TaskPriority = TaskPriority.medium
+    initiative_id: str | None = None
+    due_start_at: datetime | None = None
+    due_end_at: datetime | None = None
+    recurrence: TaskRecurrence | None = None
+    recurrence_interval: int | None = Field(default=None, ge=1)
+    recurrence_rule: str | None = None
+    recurrence_until: datetime | None = None
+    checklist_json: list[ChecklistItem] = Field(default_factory=list)
+
+
+class TaskCreate(TaskBase):
+    driver_ids: list[str] = Field(default_factory=list)
+
+
+class TaskUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=255)
+    description: str | None = None
+    status: TaskStatus | None = None
+    priority: TaskPriority | None = None
+    initiative_id: str | None = None
+    due_start_at: datetime | None = None
+    due_end_at: datetime | None = None
+    recurrence: TaskRecurrence | None = None
+    recurrence_interval: int | None = Field(default=None, ge=1)
+    recurrence_rule: str | None = None
+    recurrence_until: datetime | None = None
+    checklist_json: list[ChecklistItem] | None = None
+    driver_ids: list[str] | None = None
+
+
+class TaskResponse(TaskBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    driver_ids: list[str]
+    created_by: str
+    updated_by: str
+    created_at: datetime
+    updated_at: datetime
+    deleted_at: datetime | None
+    version: int
+
+
+class LinkDriversRequest(BaseModel):
+    driver_ids: list[str] = Field(min_length=1)
 
 
 class ReasonCreate(BaseModel):
@@ -109,11 +167,11 @@ class TaskReasonResponse(BaseModel):
     deleted_at: datetime | None
 
 
-class GoalReasonResponse(BaseModel):
+class InitiativeReasonResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
-    goal_id: str
+    initiative_id: str
     reason_text: str
     author_type: ActorType
     author_id: str

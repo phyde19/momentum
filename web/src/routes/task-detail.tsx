@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { useParams, useNavigate, Link } from "react-router";
+import { useParams, useNavigate, Link, useSearchParams } from "react-router";
 import {
   ArrowLeft,
   Save,
@@ -9,20 +9,21 @@ import {
   X,
 } from "lucide-react";
 import {
-  useTask,
-  useCreateTask,
-  useUpdateTask,
   useArchiveTask,
-  useGoals,
-  useTaskReasons,
   useAddTaskReason,
-  useUpdateTaskReason,
+  useCreateTask,
+  useDrivers,
+  useInitiatives,
+  useLinkTaskDrivers,
+  useTask,
+  useTaskReasons,
   useDeleteTaskReason,
-  useLinkTaskGoals,
-  useUnlinkTaskGoal,
+  useUnlinkTaskDriver,
+  useUpdateTask,
+  useUpdateTaskReason,
 } from "../lib/hooks";
-import type { TaskStatus, TaskPriority, Task } from "../lib/types";
-import { GoalTypeBadge } from "../components/badges";
+import type { ChecklistItem, TaskPriority, TaskRecurrence, TaskStatus } from "../lib/types";
+import { DriverTypeBadge } from "../components/badges";
 import { ReasonSection } from "../components/reason-section";
 import { LoadingSpinner } from "../components/loading";
 import { showToast } from "../components/toast";
@@ -40,6 +41,14 @@ const PRIORITY_OPTIONS: { value: TaskPriority; label: string }[] = [
   { value: "medium", label: "Medium" },
   { value: "high", label: "High" },
   { value: "critical", label: "Critical" },
+];
+
+const RECURRENCE_OPTIONS: { value: TaskRecurrence | ""; label: string }[] = [
+  { value: "", label: "No recurrence" },
+  { value: "daily", label: "Daily" },
+  { value: "weekly", label: "Weekly" },
+  { value: "monthly", label: "Monthly" },
+  { value: "custom", label: "Custom rule" },
 ];
 
 // ── Page shell: loading gate + key-based reset ──────────────────────────────
@@ -84,19 +93,21 @@ export function TaskDetailPage() {
 
 function TaskDetailForm({ taskId, isNew }: { taskId?: string; isNew: boolean }) {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
   // Live query — used only for read-only metadata (version, timestamps)
-  // and for linked-goal display (which changes via link/unlink mutations).
+  // and for linked-driver display (which changes via link/unlink mutations).
   const { data: task } = useTask(taskId);
-  const { data: goals } = useGoals();
+  const { data: initiatives } = useInitiatives();
+  const { data: drivers } = useDrivers();
   const { data: reasons = [], isLoading: reasonsLoading } = useTaskReasons(taskId);
 
   // Mutations
   const createMutation = useCreateTask();
   const updateMutation = useUpdateTask();
   const archiveMutation = useArchiveTask();
-  const linkGoalsMutation = useLinkTaskGoals();
-  const unlinkGoalMutation = useUnlinkTaskGoal();
+  const linkDriversMutation = useLinkTaskDrivers();
+  const unlinkDriverMutation = useUnlinkTaskDriver();
   const addReasonMutation = useAddTaskReason();
   const updateReasonMutation = useUpdateTaskReason();
   const deleteReasonMutation = useDeleteTaskReason();
@@ -106,9 +117,21 @@ function TaskDetailForm({ taskId, isNew }: { taskId?: string; isNew: boolean }) 
   const [description, setDescription] = useState(task?.description ?? "");
   const [status, setStatus] = useState<TaskStatus>(task?.status ?? "todo");
   const [priority, setPriority] = useState<TaskPriority>(task?.priority ?? "medium");
-  const [dueAt, setDueAt] = useState(toDateInputValue(task?.due_at));
-  const [selectedGoalIds, setSelectedGoalIds] = useState<string[]>(task?.goal_ids ?? []);
-  const [showGoalPicker, setShowGoalPicker] = useState(false);
+  const [initiativeId, setInitiativeId] = useState(
+    task?.initiative_id ?? (isNew ? (searchParams.get("initiativeId") ?? "") : ""),
+  );
+  const [dueStartAt, setDueStartAt] = useState(toDateInputValue(task?.due_start_at));
+  const [dueEndAt, setDueEndAt] = useState(toDateInputValue(task?.due_end_at));
+  const [recurrence, setRecurrence] = useState<TaskRecurrence | "">(task?.recurrence ?? "");
+  const [recurrenceInterval, setRecurrenceInterval] = useState(
+    task?.recurrence_interval ? String(task.recurrence_interval) : "",
+  );
+  const [recurrenceRule, setRecurrenceRule] = useState(task?.recurrence_rule ?? "");
+  const [recurrenceUntil, setRecurrenceUntil] = useState(toDateInputValue(task?.recurrence_until));
+  const [checklist, setChecklist] = useState<ChecklistItem[]>(task?.checklist_json ?? []);
+  const [newChecklistItem, setNewChecklistItem] = useState("");
+  const [selectedDriverIds, setSelectedDriverIds] = useState<string[]>(task?.driver_ids ?? []);
+  const [showDriverPicker, setShowDriverPicker] = useState(false);
   const [dirty, setDirty] = useState(false);
 
   const isSaving = createMutation.isPending || updateMutation.isPending;
@@ -127,8 +150,15 @@ function TaskDetailForm({ taskId, isNew }: { taskId?: string; isNew: boolean }) 
           description: description.trim() || undefined,
           status,
           priority,
-          due_at: fromDateInputValue(dueAt),
-          goal_ids: selectedGoalIds.length > 0 ? selectedGoalIds : undefined,
+          initiative_id: initiativeId || null,
+          due_start_at: fromDateInputValue(dueStartAt),
+          due_end_at: fromDateInputValue(dueEndAt),
+          recurrence: recurrence || null,
+          recurrence_interval: recurrence ? Number(recurrenceInterval || "1") : null,
+          recurrence_rule: recurrenceRule.trim() || null,
+          recurrence_until: recurrence ? fromDateInputValue(recurrenceUntil) : null,
+          checklist_json: checklist,
+          driver_ids: selectedDriverIds.length > 0 ? selectedDriverIds : undefined,
         });
         showToast("success", "Task created");
         navigate(`/tasks/${created.id}`, { replace: true });
@@ -140,7 +170,14 @@ function TaskDetailForm({ taskId, isNew }: { taskId?: string; isNew: boolean }) 
             description: description.trim() || null,
             status,
             priority,
-            due_at: fromDateInputValue(dueAt),
+            initiative_id: initiativeId || null,
+            due_start_at: fromDateInputValue(dueStartAt),
+            due_end_at: fromDateInputValue(dueEndAt),
+            recurrence: recurrence || null,
+            recurrence_interval: recurrence ? Number(recurrenceInterval || "1") : null,
+            recurrence_rule: recurrenceRule.trim() || null,
+            recurrence_until: recurrence ? fromDateInputValue(recurrenceUntil) : null,
+            checklist_json: checklist,
           },
         });
         setDirty(false);
@@ -164,41 +201,61 @@ function TaskDetailForm({ taskId, isNew }: { taskId?: string; isNew: boolean }) 
     }
   }
 
-  function handleLinkGoal(goalId: string) {
+  function handleLinkDriver(driverId: string) {
     if (!taskId) {
-      setSelectedGoalIds((prev) => [...prev, goalId]);
+      setSelectedDriverIds((prev) => [...prev, driverId]);
       markDirty();
     } else {
-      linkGoalsMutation.mutate(
-        { taskId, data: { goal_ids: [goalId] } },
+      linkDriversMutation.mutate(
+        { taskId, data: { driver_ids: [driverId] } },
         { onError: (err) => showToast("error", err.message) },
       );
     }
-    setShowGoalPicker(false);
+    setShowDriverPicker(false);
   }
 
-  function handleUnlinkGoal(goalId: string) {
+  function handleUnlinkDriver(driverId: string) {
     if (!taskId) {
-      setSelectedGoalIds((prev) => prev.filter((id) => id !== goalId));
+      setSelectedDriverIds((prev) => prev.filter((id) => id !== driverId));
       markDirty();
     } else {
-      unlinkGoalMutation.mutate(
-        { taskId, goalId },
+      unlinkDriverMutation.mutate(
+        { taskId, driverId },
         { onError: (err) => showToast("error", err.message) },
       );
     }
   }
 
-  // For existing tasks, linked goals come from the live query (auto-updates
+  function addChecklistItem() {
+    const title = newChecklistItem.trim();
+    if (!title) return;
+    setChecklist((prev) => [...prev, { title, is_done: false }]);
+    setNewChecklistItem("");
+    markDirty();
+  }
+
+  function toggleChecklistItem(index: number) {
+    setChecklist((prev) =>
+      prev.map((item, i) => (i === index ? { ...item, is_done: !item.is_done } : item)),
+    );
+    markDirty();
+  }
+
+  function removeChecklistItem(index: number) {
+    setChecklist((prev) => prev.filter((_, i) => i !== index));
+    markDirty();
+  }
+
+  // For existing tasks, linked drivers come from the live query (auto-updates
   // after link/unlink mutations). For new tasks, from local state.
-  const linkedGoalIds = useMemo(
-    () => new Set(isNew ? selectedGoalIds : (task?.goal_ids ?? selectedGoalIds)),
-    [isNew, selectedGoalIds, task?.goal_ids],
+  const linkedDriverIds = useMemo(
+    () => new Set(isNew ? selectedDriverIds : (task?.driver_ids ?? selectedDriverIds)),
+    [isNew, selectedDriverIds, task?.driver_ids],
   );
-  const availableGoals = goals?.filter(
-    (g) => !linkedGoalIds.has(g.id) && !g.deleted_at && g.state !== "archived",
+  const availableDrivers = drivers?.filter(
+    (driver) => !linkedDriverIds.has(driver.id) && !driver.deleted_at && driver.state !== "archived",
   );
-  const linkedGoals = goals?.filter((g) => linkedGoalIds.has(g.id));
+  const linkedDrivers = drivers?.filter((driver) => linkedDriverIds.has(driver.id));
 
   return (
     <div className="animate-fade-in">
@@ -224,7 +281,7 @@ function TaskDetailForm({ taskId, isNew }: { taskId?: string; isNew: boolean }) 
           />
         </div>
 
-        {/* Status / Priority / Due date row */}
+        {/* Status / Priority / Initiative row */}
         <div className="flex flex-wrap gap-4 px-6 py-4">
           <div>
             <label className="label">Status</label>
@@ -261,21 +318,124 @@ function TaskDetailForm({ taskId, isNew }: { taskId?: string; isNew: boolean }) 
             </select>
           </div>
           <div>
-            <label className="label">Due date</label>
-            <input
-              type="date"
-              value={dueAt}
+            <label className="label">Initiative</label>
+            <select
+              value={initiativeId}
               onChange={(e) => {
-                setDueAt(e.target.value);
+                setInitiativeId(e.target.value);
                 markDirty();
               }}
-              className="input w-auto text-sm"
-            />
+              className="select w-auto min-w-[220px] text-sm"
+            >
+              <option value="">None</option>
+              {initiatives
+                ?.filter((initiative) => !initiative.deleted_at && initiative.state !== "archived")
+                .map((initiative) => (
+                  <option key={initiative.id} value={initiative.id}>
+                    {initiative.title}
+                  </option>
+                ))}
+            </select>
+          </div>
+        </div>
+
+        {/* Schedule */}
+        <div className="border-t border-zinc-100 px-6 py-4">
+          <h3 className="mb-3 text-sm font-medium text-zinc-700">Schedule</h3>
+          <div className="flex flex-wrap gap-4">
+            <div>
+              <label className="label">Due start</label>
+              <input
+                type="date"
+                value={dueStartAt}
+                onChange={(e) => {
+                  setDueStartAt(e.target.value);
+                  markDirty();
+                }}
+                className="input w-auto text-sm"
+              />
+            </div>
+            <div>
+              <label className="label">Due end</label>
+              <input
+                type="date"
+                value={dueEndAt}
+                onChange={(e) => {
+                  setDueEndAt(e.target.value);
+                  markDirty();
+                }}
+                className="input w-auto text-sm"
+              />
+            </div>
+            <div>
+              <label className="label">Recurrence</label>
+              <select
+                value={recurrence}
+                onChange={(e) => {
+                  setRecurrence(e.target.value as TaskRecurrence | "");
+                  if (!e.target.value) {
+                    setRecurrenceInterval("");
+                    setRecurrenceRule("");
+                    setRecurrenceUntil("");
+                  }
+                  markDirty();
+                }}
+                className="select w-auto min-w-[170px] text-sm"
+              >
+                {RECURRENCE_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {recurrence && (
+              <>
+                <div>
+                  <label className="label">Interval</label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={recurrenceInterval}
+                    onChange={(e) => {
+                      setRecurrenceInterval(e.target.value);
+                      markDirty();
+                    }}
+                    className="input w-24 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="label">Until</label>
+                  <input
+                    type="date"
+                    value={recurrenceUntil}
+                    onChange={(e) => {
+                      setRecurrenceUntil(e.target.value);
+                      markDirty();
+                    }}
+                    className="input w-auto text-sm"
+                  />
+                </div>
+                <div className="min-w-[220px]">
+                  <label className="label">Custom rule (optional)</label>
+                  <input
+                    type="text"
+                    value={recurrenceRule}
+                    onChange={(e) => {
+                      setRecurrenceRule(e.target.value);
+                      markDirty();
+                    }}
+                    className="input text-sm"
+                    placeholder="Optional custom pattern"
+                  />
+                </div>
+              </>
+            )}
           </div>
         </div>
 
         {/* Description */}
-        <div className="px-6 pb-4">
+        <div className="border-t border-zinc-100 px-6 pb-4 pt-4">
           <label className="label">Description</label>
           <textarea
             value={description}
@@ -289,16 +449,66 @@ function TaskDetailForm({ taskId, isNew }: { taskId?: string; isNew: boolean }) 
           />
         </div>
 
-        {/* Linked Goals */}
+        {/* Checklist */}
+        <div className="border-t border-zinc-100 px-6 py-4">
+          <h3 className="mb-3 text-sm font-medium text-zinc-700">Checklist</h3>
+          <div className="space-y-2">
+            {checklist.map((item, idx) => (
+              <div key={`${item.title}-${idx}`} className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={item.is_done}
+                  onChange={() => toggleChecklistItem(idx)}
+                  className="h-4 w-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500"
+                />
+                <span
+                  className={cn(
+                    "flex-1 text-sm",
+                    item.is_done ? "text-zinc-400 line-through" : "text-zinc-700",
+                  )}
+                >
+                  {item.title}
+                </span>
+                <button
+                  onClick={() => removeChecklistItem(idx)}
+                  className="rounded p-1 text-zinc-400 hover:bg-zinc-100 hover:text-red-600"
+                  title="Remove item"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ))}
+            <div className="flex items-center gap-2 pt-1">
+              <input
+                value={newChecklistItem}
+                onChange={(e) => setNewChecklistItem(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    addChecklistItem();
+                  }
+                }}
+                className="input flex-1 !py-1.5 text-sm"
+                placeholder="Add checklist item"
+              />
+              <button onClick={addChecklistItem} className="btn-ghost !px-2 !py-1.5 text-xs">
+                <Plus className="h-3.5 w-3.5" />
+                Add
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Linked Drivers */}
         <div className="border-t border-zinc-100 px-6 py-4">
           <div className="mb-3 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Link2 className="h-4 w-4 text-zinc-400" />
-              <h3 className="text-sm font-medium text-zinc-700">Linked Goals</h3>
+              <h3 className="text-sm font-medium text-zinc-700">Linked Drivers</h3>
             </div>
-            {!showGoalPicker && (
+            {!showDriverPicker && (
               <button
-                onClick={() => setShowGoalPicker(true)}
+                onClick={() => setShowDriverPicker(true)}
                 className="btn-ghost !px-2 !py-1 text-xs"
               >
                 <Plus className="h-3.5 w-3.5" />
@@ -308,49 +518,47 @@ function TaskDetailForm({ taskId, isNew }: { taskId?: string; isNew: boolean }) 
           </div>
 
           <div className="flex flex-wrap gap-2">
-            {linkedGoals?.map((goal) => (
+            {linkedDrivers?.map((driver) => (
               <div
-                key={goal.id}
+                key={driver.id}
                 className="group flex items-center gap-1.5 rounded-lg border border-zinc-200 bg-zinc-50 px-2.5 py-1.5"
               >
-                <GoalTypeBadge type={goal.goal_type} />
-                <span className="text-sm text-zinc-700">{goal.title}</span>
-                {linkedGoalIds.size > 1 && (
-                  <button
-                    onClick={() => handleUnlinkGoal(goal.id)}
-                    className="ml-1 rounded p-0.5 text-zinc-400 opacity-0 transition-opacity hover:text-red-500 group-hover:opacity-100"
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
-                )}
+                <DriverTypeBadge type={driver.driver_type} />
+                <span className="text-sm text-zinc-700">{driver.title}</span>
+                <button
+                  onClick={() => handleUnlinkDriver(driver.id)}
+                  className="ml-1 rounded p-0.5 text-zinc-400 opacity-0 transition-opacity hover:text-red-500 group-hover:opacity-100"
+                >
+                  <X className="h-3 w-3" />
+                </button>
               </div>
             ))}
 
-            {linkedGoals?.length === 0 && !showGoalPicker && (
-              <p className="text-xs italic text-zinc-400">No goals linked</p>
+            {linkedDrivers?.length === 0 && !showDriverPicker && (
+              <p className="text-xs italic text-zinc-400">No drivers linked</p>
             )}
           </div>
 
-          {showGoalPicker && (
+          {showDriverPicker && (
             <div className="mt-3 rounded-lg border border-zinc-200 bg-zinc-50 p-3">
-              <p className="mb-2 text-xs font-medium text-zinc-500">Select a goal to link:</p>
+              <p className="mb-2 text-xs font-medium text-zinc-500">Select a driver to link:</p>
               <div className="max-h-48 space-y-1 overflow-y-auto">
-                {availableGoals?.map((goal) => (
+                {availableDrivers?.map((driver) => (
                   <button
-                    key={goal.id}
-                    onClick={() => handleLinkGoal(goal.id)}
+                    key={driver.id}
+                    onClick={() => handleLinkDriver(driver.id)}
                     className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-white"
                   >
-                    <GoalTypeBadge type={goal.goal_type} />
-                    <span className="text-zinc-700">{goal.title}</span>
+                    <DriverTypeBadge type={driver.driver_type} />
+                    <span className="text-zinc-700">{driver.title}</span>
                   </button>
                 ))}
-                {availableGoals?.length === 0 && (
-                  <p className="text-xs text-zinc-400">No more goals to link</p>
+                {availableDrivers?.length === 0 && (
+                  <p className="text-xs text-zinc-400">No more drivers to link</p>
                 )}
               </div>
               <button
-                onClick={() => setShowGoalPicker(false)}
+                onClick={() => setShowDriverPicker(false)}
                 className="btn-ghost mt-2 w-full text-xs"
               >
                 Cancel

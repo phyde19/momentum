@@ -1,10 +1,15 @@
 import type {
-  Goal,
-  GoalCreate,
-  GoalListParams,
-  GoalReason,
-  GoalUpdate,
-  LinkGoalsRequest,
+  Driver,
+  DriverCreate,
+  DriverListParams,
+  DriverTreeNode,
+  DriverUpdate,
+  Initiative,
+  InitiativeCreate,
+  InitiativeListParams,
+  InitiativeReason,
+  InitiativeUpdate,
+  LinkDriversRequest,
   ReasonCreate,
   ReasonUpdate,
   Task,
@@ -81,14 +86,14 @@ export const api = {
   archiveTask: (id: string) =>
     apiFetch<Task>(`/tasks/${id}`, { method: "DELETE" }),
 
-  linkTaskGoals: (taskId: string, data: LinkGoalsRequest) =>
-    apiFetch<Task>(`/tasks/${taskId}/links/goals`, {
+  linkTaskDrivers: (taskId: string, data: LinkDriversRequest) =>
+    apiFetch<Task>(`/tasks/${taskId}/links/drivers`, {
       method: "POST",
       body: JSON.stringify(data),
     }),
 
-  unlinkTaskGoal: (taskId: string, goalId: string) =>
-    apiFetch<Task>(`/tasks/${taskId}/links/goals/${goalId}`, { method: "DELETE" }),
+  unlinkTaskDriver: (taskId: string, driverId: string) =>
+    apiFetch<Task>(`/tasks/${taskId}/links/drivers/${driverId}`, { method: "DELETE" }),
 
   // Task reasons
   listTaskReasons: (taskId: string) =>
@@ -109,40 +114,68 @@ export const api = {
   deleteTaskReason: (reasonId: string) =>
     apiFetch<{ status: string }>(`/tasks/reasons/${reasonId}`, { method: "DELETE" }),
 
-  // Goals
-  listGoals: (params?: GoalListParams) =>
-    apiFetch<Goal[]>(`/goals${qs(params as Record<string, string | number | boolean | null | undefined>)}`),
+  // Initiatives
+  listInitiatives: (params?: InitiativeListParams) =>
+    apiFetch<Initiative[]>(`/initiatives${qs(params as Record<string, string | number | boolean | null | undefined>)}`),
 
-  getGoal: (id: string) =>
-    apiFetch<Goal>(`/goals/${id}`),
+  getInitiative: (id: string) =>
+    apiFetch<Initiative>(`/initiatives/${id}`),
 
-  createGoal: (data: GoalCreate) =>
-    apiFetch<Goal>("/goals", { method: "POST", body: JSON.stringify(data) }),
+  createInitiative: (data: InitiativeCreate) =>
+    apiFetch<Initiative>("/initiatives", { method: "POST", body: JSON.stringify(data) }),
 
-  updateGoal: (id: string, data: GoalUpdate) =>
-    apiFetch<Goal>(`/goals/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  updateInitiative: (id: string, data: InitiativeUpdate) =>
+    apiFetch<Initiative>(`/initiatives/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
 
-  archiveGoal: (id: string) =>
-    apiFetch<Goal>(`/goals/${id}`, { method: "DELETE" }),
+  archiveInitiative: (id: string) =>
+    apiFetch<Initiative>(`/initiatives/${id}`, { method: "DELETE" }),
 
-  // Goal reasons
-  listGoalReasons: (goalId: string) =>
-    apiFetch<GoalReason[]>(`/goals/${goalId}/reasons`),
-
-  addGoalReason: (goalId: string, data: ReasonCreate) =>
-    apiFetch<GoalReason>(`/goals/${goalId}/reasons`, {
+  linkInitiativeDrivers: (initiativeId: string, data: LinkDriversRequest) =>
+    apiFetch<Initiative>(`/initiatives/${initiativeId}/links/drivers`, {
       method: "POST",
       body: JSON.stringify(data),
     }),
 
-  updateGoalReason: (reasonId: string, data: ReasonUpdate) =>
-    apiFetch<GoalReason>(`/goals/reasons/${reasonId}`, {
+  unlinkInitiativeDriver: (initiativeId: string, driverId: string) =>
+    apiFetch<Initiative>(`/initiatives/${initiativeId}/links/drivers/${driverId}`, { method: "DELETE" }),
+
+  // Initiative reasons
+  listInitiativeReasons: (initiativeId: string) =>
+    apiFetch<InitiativeReason[]>(`/initiatives/${initiativeId}/reasons`),
+
+  addInitiativeReason: (initiativeId: string, data: ReasonCreate) =>
+    apiFetch<InitiativeReason>(`/initiatives/${initiativeId}/reasons`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  updateInitiativeReason: (reasonId: string, data: ReasonUpdate) =>
+    apiFetch<InitiativeReason>(`/initiatives/reasons/${reasonId}`, {
       method: "PATCH",
       body: JSON.stringify(data),
     }),
 
-  deleteGoalReason: (reasonId: string) =>
-    apiFetch<{ status: string }>(`/goals/reasons/${reasonId}`, { method: "DELETE" }),
+  deleteInitiativeReason: (reasonId: string) =>
+    apiFetch<{ status: string }>(`/initiatives/reasons/${reasonId}`, { method: "DELETE" }),
+
+  // Drivers
+  listDrivers: (params?: DriverListParams) =>
+    apiFetch<Driver[]>(`/drivers${qs(params as Record<string, string | number | boolean | null | undefined>)}`),
+
+  getDriversTree: () =>
+    apiFetch<DriverTreeNode[]>("/drivers/tree"),
+
+  getDriver: (id: string) =>
+    apiFetch<Driver>(`/drivers/${id}`),
+
+  createDriver: (data: DriverCreate) =>
+    apiFetch<Driver>("/drivers", { method: "POST", body: JSON.stringify(data) }),
+
+  updateDriver: (id: string, data: DriverUpdate) =>
+    apiFetch<Driver>(`/drivers/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+
+  archiveDriver: (id: string) =>
+    apiFetch<Driver>(`/drivers/${id}`, { method: "DELETE" }),
 };
 
 export { ApiError };
