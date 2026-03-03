@@ -2,6 +2,7 @@ import { useState, useMemo } from "react";
 import { useParams, useNavigate, Link, useSearchParams } from "react-router";
 import {
   ArrowLeft,
+  ChevronRight,
   Save,
   Archive,
   Link2,
@@ -192,6 +193,7 @@ function TaskDetailForm({ taskId, isNew }: { taskId?: string; isNew: boolean }) 
   const [selectedDriverIds, setSelectedDriverIds] = useState<string[]>(task?.driver_ids ?? []);
   const [showDriverPicker, setShowDriverPicker] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [timingOpen, setTimingOpen] = useState(false);
 
   const isSaving = createMutation.isPending || updateMutation.isPending;
 
@@ -468,10 +470,31 @@ function TaskDetailForm({ taskId, isNew }: { taskId?: string; isNew: boolean }) 
           </div>
         </div>
 
+        {/* Description */}
+        <div className="border-t border-zinc-100 px-6 py-4">
+          <label className="label">Description</label>
+          <textarea
+            value={description}
+            onChange={(e) => { setDescription(e.target.value); markDirty(); }}
+            placeholder="Add a description..."
+            rows={5}
+            className="input resize-none text-sm"
+          />
+        </div>
+
         {/* Timing */}
         <div className="border-t border-zinc-100 px-6 py-4">
-          <h3 className="mb-3 text-sm font-medium text-zinc-700">Timing</h3>
+          <button
+            type="button"
+            onClick={() => setTimingOpen(!timingOpen)}
+            className="inline-flex items-center gap-1.5 text-sm font-medium text-zinc-500 hover:text-zinc-700"
+          >
+            <ChevronRight className={cn("h-3.5 w-3.5 transition-transform duration-150", timingOpen && "rotate-90")} />
+            Timing
+          </button>
 
+          {timingOpen && (
+          <div className="mt-3">
           {/* Mode selector */}
           <div className="mb-4 inline-flex rounded-lg border border-zinc-200 p-0.5">
             {TASK_TIMING_MODES.map((mode) => (
@@ -869,18 +892,8 @@ function TaskDetailForm({ taskId, isNew }: { taskId?: string; isNew: boolean }) 
               </div>
             </div>
           )}
-        </div>
-
-        {/* Description */}
-        <div className="border-t border-zinc-100 px-6 pb-4 pt-4">
-          <label className="label">Description</label>
-          <textarea
-            value={description}
-            onChange={(e) => { setDescription(e.target.value); markDirty(); }}
-            placeholder="Add a description..."
-            rows={4}
-            className="input resize-none text-sm"
-          />
+          </div>
+          )}
         </div>
 
         {/* Checklist */}

@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useNavigate, useParams, Link } from "react-router";
-import { ArrowLeft, Archive, Link2, Plus, Save, X } from "lucide-react";
+import { ArrowLeft, Archive, ChevronRight, Link2, Plus, Save, X } from "lucide-react";
 import {
   useAddInitiativeReason,
   useArchiveInitiative,
@@ -110,6 +110,7 @@ function InitiativeDetailForm({
   const [selectedDriverIds, setSelectedDriverIds] = useState<string[]>(initiative?.driver_ids ?? []);
   const [showDriverPicker, setShowDriverPicker] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [timingOpen, setTimingOpen] = useState(false);
 
   const isSaving = createMutation.isPending || updateMutation.isPending;
 
@@ -248,9 +249,31 @@ function InitiativeDetailForm({
           </div>
         </div>
 
+        {/* Description */}
+        <div className="border-t border-zinc-100 px-6 py-4">
+          <label className="label">Description</label>
+          <textarea
+            value={description}
+            onChange={(e) => { setDescription(e.target.value); markDirty(); }}
+            placeholder="Describe this initiative..."
+            rows={5}
+            className="input resize-none text-sm"
+          />
+        </div>
+
         {/* Timing */}
         <div className="border-t border-zinc-100 px-6 py-4">
-          <h3 className="mb-3 text-sm font-medium text-zinc-700">Timing</h3>
+          <button
+            type="button"
+            onClick={() => setTimingOpen(!timingOpen)}
+            className="inline-flex items-center gap-1.5 text-sm font-medium text-zinc-500 hover:text-zinc-700"
+          >
+            <ChevronRight className={cn("h-3.5 w-3.5 transition-transform duration-150", timingOpen && "rotate-90")} />
+            Timing
+          </button>
+
+          {timingOpen && (
+          <div className="mt-3">
           <div className="mb-4 inline-flex rounded-lg border border-zinc-200 p-0.5">
             {INITIATIVE_TIMING_MODES.map((mode) => (
               <button
@@ -328,19 +351,11 @@ function InitiativeDetailForm({
               )}
             </div>
           )}
+          </div>
+          )}
         </div>
 
-        <div className="border-t border-zinc-100 px-6 pb-4 pt-4">
-          <label className="label">Description</label>
-          <textarea
-            value={description}
-            onChange={(e) => { setDescription(e.target.value); markDirty(); }}
-            placeholder="Describe this initiative..."
-            rows={4}
-            className="input resize-none text-sm"
-          />
-        </div>
-
+        {/* Linked Drivers */}
         <div className="border-t border-zinc-100 px-6 py-4">
           <div className="mb-3 flex items-center justify-between">
             <div className="flex items-center gap-2">
