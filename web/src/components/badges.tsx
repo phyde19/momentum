@@ -1,4 +1,5 @@
-import { cn } from "../lib/utils";
+import { Clock, CalendarDays, Repeat, Infinity as InfinityIcon } from "lucide-react";
+import { cn, formatTimingSummary, getTimingUrgency, type TimingSummaryInput, type TimingUrgency } from "../lib/utils";
 import type { DriverType, InitiativeState, TaskPriority, TaskStatus } from "../lib/types";
 
 // ── Status badge ────────────────────────────────────────────────────────────
@@ -117,6 +118,43 @@ export function InitiativeStateBadge({ state }: { state: InitiativeState }) {
       )}
     >
       {initiativeStateLabels[state]}
+    </span>
+  );
+}
+
+// ── Timing badge ───────────────────────────────────────────────────────────
+
+const urgencyStyles: Record<TimingUrgency, string> = {
+  overdue: "bg-red-50 text-red-700 ring-1 ring-inset ring-red-600/20",
+  soon: "bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-600/20",
+  normal: "bg-zinc-100 text-zinc-600",
+  none: "bg-zinc-100 text-zinc-500",
+};
+
+function TimingIcon({ timing }: { timing: TimingSummaryInput }) {
+  const cls = "h-3 w-3 shrink-0";
+  if (timing.timing_mode === "periodic") return <Repeat className={cls} />;
+  if (timing.timing_mode === "indefinite") return <InfinityIcon className={cls} />;
+  if (timing.timing_mode === "deadline" || timing.timing_mode === "flexible")
+    return <CalendarDays className={cls} />;
+  return <Clock className={cls} />;
+}
+
+export function TimingBadge({ timing }: { timing: TimingSummaryInput }) {
+  if (timing.timing_mode === "none") return null;
+
+  const summary = formatTimingSummary(timing);
+  const urgency = getTimingUrgency(timing);
+
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium",
+        urgencyStyles[urgency],
+      )}
+    >
+      <TimingIcon timing={timing} />
+      {summary}
     </span>
   );
 }

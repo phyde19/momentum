@@ -3,7 +3,7 @@ import { Link, useSearchParams } from "react-router";
 import { Archive, Plus, Search, Target, X } from "lucide-react";
 import { useArchiveInitiative, useDrivers, useInitiatives } from "../lib/hooks";
 import type { DriverType, InitiativeState } from "../lib/types";
-import { DriverTypeBadge, InitiativeStateBadge } from "../components/badges";
+import { DriverTypeBadge, InitiativeStateBadge, TimingBadge } from "../components/badges";
 import { EmptyState } from "../components/empty-state";
 import { LoadingSpinner } from "../components/loading";
 import { cn, formatDate } from "../lib/utils";
@@ -152,10 +152,10 @@ export function InitiativesPage() {
                 )}
               </div>
 
-              {initiative.timing_mode !== "none" && initiative.timing_mode !== "indefinite" && initiative.deadline_at && (
-                <span className="hidden shrink-0 text-xs text-zinc-400 md:block">
-                  {formatDate(initiative.deadline_at)}
-                </span>
+              {initiative.timing_mode !== "none" && (
+                <div className="hidden shrink-0 md:block">
+                  <TimingBadge timing={initiative} />
+                </div>
               )}
 
               {initiative.state !== "archived" && (

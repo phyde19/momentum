@@ -3,7 +3,7 @@ import { Link, useSearchParams } from "react-router";
 import { CheckSquare, Plus, Search, Archive, X } from "lucide-react";
 import { useArchiveTask, useInitiatives, useTasks } from "../lib/hooks";
 import type { TaskStatus, TaskPriority } from "../lib/types";
-import { StatusBadge, PriorityBadge } from "../components/badges";
+import { StatusBadge, PriorityBadge, TimingBadge } from "../components/badges";
 import { EmptyState } from "../components/empty-state";
 import { LoadingSpinner } from "../components/loading";
 import { formatDate, cn } from "../lib/utils";
@@ -194,13 +194,9 @@ export function TasksPage() {
 
               {/* Timing info */}
               {task.timing_mode !== "none" && (
-                <span className="hidden shrink-0 text-xs text-zinc-400 md:block">
-                  {task.timing_mode === "periodic"
-                    ? "Periodic"
-                    : task.deadline_at
-                      ? formatDate(task.deadline_at)
-                      : ""}
-                </span>
+                <div className="hidden shrink-0 md:block">
+                  <TimingBadge timing={task} />
+                </div>
               )}
 
               {/* Archive button */}

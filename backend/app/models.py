@@ -130,6 +130,11 @@ class Driver(Base):
         back_populates="driver",
         cascade="all, delete-orphan",
     )
+    block_links: Mapped[list[BlockDriverLink]] = relationship(
+        "BlockDriverLink",
+        back_populates="driver",
+        cascade="all, delete-orphan",
+    )
 
 
 class Initiative(Base):
@@ -161,6 +166,7 @@ class Initiative(Base):
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
 
     tasks: Mapped[list[Task]] = relationship("Task", back_populates="initiative")
+    blocks: Mapped[list[Block]] = relationship("Block", back_populates="initiative")
     driver_links: Mapped[list[InitiativeDriverLink]] = relationship(
         "InitiativeDriverLink",
         back_populates="initiative",
@@ -318,6 +324,90 @@ class InitiativeReason(Base):
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     initiative: Mapped[Initiative] = relationship("Initiative", back_populates="reasons")
+
+
+class Block(Base):
+    __tablename__ = "blocks"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    initiative_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("initiatives.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    periodic_type: Mapped[PeriodicType | None] = mapped_column(PERIODIC_TYPE_ENUM, nullable=True)
+    periodic_spec: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    periodic_end_mode: Mapped[PeriodicEndMode | None] = mapped_column(
+        PERIODIC_END_MODE_ENUM, nullable=True,
+    )
+    periodic_end_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    periodic_end_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_by: Mapped[str] = mapped_column(String(255), nullable=False)
+    updated_by: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utcnow,
+        onupdate=utcnow,
+    )
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+
+    initiative: Mapped[Initiative | None] = relationship("Initiative", back_populates="blocks")
+    driver_links: Mapped[list[BlockDriverLink]] = relationship(
+        "BlockDriverLink",
+        back_populates="block",
+        cascade="all, delete-orphan",
+    )
+    reasons: Mapped[list[BlockReason]] = relationship(
+        "BlockReason",
+        back_populates="block",
+        cascade="all, delete-orphan",
+    )
+
+
+class BlockDriverLink(Base):
+    __tablename__ = "block_driver_links"
+
+    block_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("blocks.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    driver_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("drivers.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    linked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+
+    block: Mapped[Block] = relationship("Block", back_populates="driver_links")
+    driver: Mapped[Driver] = relationship("Driver", back_populates="block_links")
+
+
+class BlockReason(Base):
+    __tablename__ = "block_reasons"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    block_id: Mapped[str] = mapped_column(String(36), ForeignKey("blocks.id", ondelete="CASCADE"), nullable=False)
+    reason_text: Mapped[str] = mapped_column(Text, nullable=False)
+    author_type: Mapped[ActorType] = mapped_column(ACTOR_TYPE_ENUM, nullable=False)
+    author_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utcnow,
+        onupdate=utcnow,
+    )
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    block: Mapped[Block] = relationship("Block", back_populates="reasons")
 
 
 class AuditEvent(Base):

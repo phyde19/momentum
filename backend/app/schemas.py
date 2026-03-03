@@ -192,6 +192,63 @@ class InitiativeReasonResponse(BaseModel):
     deleted_at: datetime | None
 
 
+class BlockBase(BaseModel):
+    title: str = Field(min_length=1, max_length=255)
+    description: str | None = None
+    starts_at: datetime
+    ends_at: datetime
+    initiative_id: str | None = None
+    periodic_type: PeriodicType | None = None
+    periodic_spec: PeriodicSpec | None = None
+    periodic_end_mode: PeriodicEndMode | None = None
+    periodic_end_at: datetime | None = None
+    periodic_end_count: int | None = Field(default=None, ge=1)
+
+
+class BlockCreate(BlockBase):
+    driver_ids: list[str] = Field(default_factory=list)
+
+
+class BlockUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=255)
+    description: str | None = None
+    starts_at: datetime | None = None
+    ends_at: datetime | None = None
+    initiative_id: str | None = None
+    periodic_type: PeriodicType | None = None
+    periodic_spec: PeriodicSpec | None = None
+    periodic_end_mode: PeriodicEndMode | None = None
+    periodic_end_at: datetime | None = None
+    periodic_end_count: int | None = Field(default=None, ge=1)
+    driver_ids: list[str] | None = None
+
+
+class BlockResponse(BlockBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    driver_ids: list[str]
+    created_by: str
+    updated_by: str
+    created_at: datetime
+    updated_at: datetime
+    deleted_at: datetime | None
+    version: int
+
+
+class BlockReasonResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    block_id: str
+    reason_text: str
+    author_type: ActorType
+    author_id: str
+    created_at: datetime
+    updated_at: datetime
+    deleted_at: datetime | None
+
+
 class AuditEventResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

@@ -1,4 +1,9 @@
 import type {
+  Block,
+  BlockCreate,
+  BlockListParams,
+  BlockReason,
+  BlockUpdate,
   Driver,
   DriverCreate,
   DriverListParams,
@@ -176,6 +181,50 @@ export const api = {
 
   archiveDriver: (id: string) =>
     apiFetch<Driver>(`/drivers/${id}`, { method: "DELETE" }),
+
+  // Blocks
+  listBlocks: (params?: BlockListParams) =>
+    apiFetch<Block[]>(`/blocks${qs(params as Record<string, string | number | boolean | null | undefined>)}`),
+
+  getBlock: (id: string) =>
+    apiFetch<Block>(`/blocks/${id}`),
+
+  createBlock: (data: BlockCreate) =>
+    apiFetch<Block>("/blocks", { method: "POST", body: JSON.stringify(data) }),
+
+  updateBlock: (id: string, data: BlockUpdate) =>
+    apiFetch<Block>(`/blocks/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+
+  archiveBlock: (id: string) =>
+    apiFetch<Block>(`/blocks/${id}`, { method: "DELETE" }),
+
+  linkBlockDrivers: (blockId: string, data: LinkDriversRequest) =>
+    apiFetch<Block>(`/blocks/${blockId}/links/drivers`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  unlinkBlockDriver: (blockId: string, driverId: string) =>
+    apiFetch<Block>(`/blocks/${blockId}/links/drivers/${driverId}`, { method: "DELETE" }),
+
+  // Block reasons
+  listBlockReasons: (blockId: string) =>
+    apiFetch<BlockReason[]>(`/blocks/${blockId}/reasons`),
+
+  addBlockReason: (blockId: string, data: ReasonCreate) =>
+    apiFetch<BlockReason>(`/blocks/${blockId}/reasons`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  updateBlockReason: (reasonId: string, data: ReasonUpdate) =>
+    apiFetch<BlockReason>(`/blocks/reasons/${reasonId}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    }),
+
+  deleteBlockReason: (reasonId: string) =>
+    apiFetch<{ status: string }>(`/blocks/reasons/${reasonId}`, { method: "DELETE" }),
 };
 
 export { ApiError };

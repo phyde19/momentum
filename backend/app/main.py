@@ -11,11 +11,14 @@ from app.auth import Actor, get_current_actor, get_request_id
 from app.config import get_settings
 from app.database import Base, engine, get_db
 from app.domain import (
+    block_has_driver_link,
     create_audit_event,
     ensure_driver_is_linkable,
     ensure_driver_is_not_descendant,
     ensure_driver_parent_is_valid,
     ensure_initiative_is_linkable,
+    get_block_driver_ids,
+    get_block_or_404,
     get_driver_or_404,
     get_initiative_driver_ids,
     get_initiative_or_404,
@@ -28,6 +31,9 @@ from app.domain import (
 )
 from app.models import (
     AuditEvent,
+    Block,
+    BlockDriverLink,
+    BlockReason,
     Driver,
     DriverState,
     DriverType,
@@ -44,6 +50,10 @@ from app.models import (
 )
 from app.schemas import (
     AuditEventResponse,
+    BlockCreate,
+    BlockReasonResponse,
+    BlockResponse,
+    BlockUpdate,
     DriverCreate,
     DriverResponse,
     DriverTreeNode,
@@ -1316,6 +1326,481 @@ def delete_initiative_reason(
         before_json=before,
         after_json=serialize_model(reason),
         metadata_json={"initiative_id": reason.initiative_id},
+    )
+    db.commit()
+    return {"status": "deleted"}
+
+
+# ── Block routes ──────────────────────────────────────────────────────────────
+
+
+def _block_response(db: Session, block: Block) -> BlockResponse:
+    return BlockResponse(
+        id=block.id,
+        title=block.title,
+        description=block.description,
+        starts_at=block.starts_at,
+        ends_at=block.ends_at,
+        initiative_id=block.initiative_id,
+        periodic_type=block.periodic_type,
+        periodic_spec=block.periodic_spec,
+        periodic_end_mode=block.periodic_end_mode,
+        periodic_end_at=block.periodic_end_at,
+        periodic_end_count=block.periodic_end_count,
+        driver_ids=get_block_driver_ids(db, block.id),
+        created_by=block.created_by,
+        updated_by=block.updated_by,
+        created_at=block.created_at,
+        updated_at=block.updated_at,
+        deleted_at=block.deleted_at,
+        version=block.version,
+    )
+
+
+def _validate_block_times(starts_at: Any, ends_at: Any) -> None:
+    if starts_at and ends_at and starts_at >= ends_at:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="starts_at must be before ends_at.",
+        )
+
+
+def _validate_block_periodic(
+    periodic_type: Any = None,
+    periodic_spec: Any = None,
+) -> None:
+    if periodic_type and not periodic_spec:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="periodic_spec is required when periodic_type is set.",
+        )
+    if periodic_spec and not periodic_type:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="periodic_type is required when periodic_spec is set.",
+        )
+
+
+@app.get(f"{settings.api_prefix}/blocks", response_model=list[BlockResponse])
+def list_blocks(
+    include_deleted: bool = False,
+    initiative_id: str | None = None,
+    driver_id: str | None = None,
+    starts_after: str | None = None,
+    starts_before: str | None = None,
+    query: str | None = None,
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+    _: Actor = Depends(get_current_actor),
+) -> list[BlockResponse]:
+    stmt = select(Block).order_by(Block.starts_at.desc()).limit(limit).offset(offset)
+    if not include_deleted:
+        stmt = stmt.where(Block.deleted_at.is_(None))
+    if query:
+        like_term = f"%{query}%"
+        stmt = stmt.where(or_(Block.title.ilike(like_term), Block.description.ilike(like_term)))
+    if initiative_id:
+        stmt = stmt.where(Block.initiative_id == initiative_id)
+    if starts_after:
+        stmt = stmt.where(Block.starts_at >= starts_after)
+    if starts_before:
+        stmt = stmt.where(Block.starts_at <= starts_before)
+    if driver_id:
+        stmt = stmt.join(BlockDriverLink, BlockDriverLink.block_id == Block.id).where(
+            BlockDriverLink.driver_id == driver_id
+        )
+    blocks = list(db.scalars(stmt))
+    return [_block_response(db, block) for block in blocks]
+
+
+@app.get(f"{settings.api_prefix}/blocks/{{block_id}}", response_model=BlockResponse)
+def get_block(
+    block_id: str,
+    db: Session = Depends(get_db),
+    _: Actor = Depends(get_current_actor),
+) -> BlockResponse:
+    block = get_block_or_404(db, block_id)
+    return _block_response(db, block)
+
+
+@app.post(
+    f"{settings.api_prefix}/blocks",
+    response_model=BlockResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_block(
+    payload: BlockCreate,
+    db: Session = Depends(get_db),
+    actor: Actor = Depends(get_current_actor),
+    request_id: str = Depends(get_request_id),
+) -> BlockResponse:
+    driver_ids = _dedupe_ids(payload.driver_ids)
+    _validate_block_times(payload.starts_at, payload.ends_at)
+    _validate_block_periodic(payload.periodic_type, payload.periodic_spec)
+
+    if payload.initiative_id:
+        initiative = get_initiative_or_404(db, payload.initiative_id)
+        ensure_initiative_is_linkable(initiative)
+    for did in driver_ids:
+        driver = get_driver_or_404(db, did)
+        ensure_driver_is_linkable(driver)
+
+    periodic_spec_dict = payload.periodic_spec.model_dump() if payload.periodic_spec else None
+
+    block = Block(
+        title=payload.title,
+        description=payload.description,
+        starts_at=payload.starts_at,
+        ends_at=payload.ends_at,
+        initiative_id=payload.initiative_id,
+        periodic_type=payload.periodic_type,
+        periodic_spec=periodic_spec_dict,
+        periodic_end_mode=payload.periodic_end_mode,
+        periodic_end_at=payload.periodic_end_at,
+        periodic_end_count=payload.periodic_end_count,
+        created_by=actor.actor_id,
+        updated_by=actor.actor_id,
+    )
+    db.add(block)
+    db.flush()
+
+    for did in driver_ids:
+        db.add(BlockDriverLink(block_id=block.id, driver_id=did))
+
+    create_audit_event(
+        db,
+        actor_type=actor.actor_type,
+        actor_id=actor.actor_id,
+        action="block.create",
+        entity_type="block",
+        entity_id=block.id,
+        request_id=request_id,
+        before_json=None,
+        after_json={"block": serialize_model(block), "driver_ids": driver_ids},
+    )
+    db.commit()
+    db.refresh(block)
+    return _block_response(db, block)
+
+
+@app.patch(f"{settings.api_prefix}/blocks/{{block_id}}", response_model=BlockResponse)
+def update_block(
+    block_id: str,
+    payload: BlockUpdate,
+    db: Session = Depends(get_db),
+    actor: Actor = Depends(get_current_actor),
+    request_id: str = Depends(get_request_id),
+) -> BlockResponse:
+    block = get_block_or_404(db, block_id)
+    before = _block_response(db, block).model_dump(mode="json")
+    changes = payload.model_dump(exclude_unset=True)
+    driver_ids = changes.pop("driver_ids", None)
+
+    starts_at = changes.get("starts_at", block.starts_at)
+    ends_at = changes.get("ends_at", block.ends_at)
+    _validate_block_times(starts_at, ends_at)
+    _validate_block_periodic(
+        changes.get("periodic_type", block.periodic_type),
+        changes.get("periodic_spec", block.periodic_spec),
+    )
+
+    if "initiative_id" in changes and changes["initiative_id"]:
+        initiative = get_initiative_or_404(db, changes["initiative_id"])
+        ensure_initiative_is_linkable(initiative)
+
+    if "periodic_spec" in changes and changes["periodic_spec"] is not None:
+        changes["periodic_spec"] = changes["periodic_spec"].model_dump()
+
+    if driver_ids is not None:
+        target_driver_ids = _dedupe_ids(driver_ids)
+        for did in target_driver_ids:
+            driver = get_driver_or_404(db, did)
+            ensure_driver_is_linkable(driver)
+        existing_links = list(
+            db.scalars(select(BlockDriverLink).where(BlockDriverLink.block_id == block.id))
+        )
+        existing_driver_ids = {link.driver_id for link in existing_links}
+        target_driver_set = set(target_driver_ids)
+        for link in existing_links:
+            if link.driver_id not in target_driver_set:
+                db.delete(link)
+        for did in target_driver_ids:
+            if did not in existing_driver_ids:
+                db.add(BlockDriverLink(block_id=block.id, driver_id=did))
+
+    for key, value in changes.items():
+        setattr(block, key, value)
+    block.updated_by = actor.actor_id
+    block.version += 1
+    after = _block_response(db, block).model_dump(mode="json")
+
+    create_audit_event(
+        db,
+        actor_type=actor.actor_type,
+        actor_id=actor.actor_id,
+        action="block.update",
+        entity_type="block",
+        entity_id=block.id,
+        request_id=request_id,
+        before_json=before,
+        after_json=after,
+    )
+    db.commit()
+    db.refresh(block)
+    return _block_response(db, block)
+
+
+@app.delete(f"{settings.api_prefix}/blocks/{{block_id}}", response_model=BlockResponse)
+def archive_block(
+    block_id: str,
+    db: Session = Depends(get_db),
+    actor: Actor = Depends(get_current_actor),
+    request_id: str = Depends(get_request_id),
+) -> BlockResponse:
+    block = get_block_or_404(db, block_id)
+    before = serialize_model(block)
+    block.deleted_at = utcnow()
+    block.updated_by = actor.actor_id
+    block.version += 1
+    create_audit_event(
+        db,
+        actor_type=actor.actor_type,
+        actor_id=actor.actor_id,
+        action="block.archive",
+        entity_type="block",
+        entity_id=block.id,
+        request_id=request_id,
+        before_json=before,
+        after_json=serialize_model(block),
+    )
+    db.commit()
+    db.refresh(block)
+    return _block_response(db, block)
+
+
+@app.delete(f"{settings.api_prefix}/blocks/{{block_id}}/hard-delete", status_code=status.HTTP_200_OK)
+def hard_delete_block(
+    block_id: str,
+    confirm: bool = Query(default=False),
+    db: Session = Depends(get_db),
+    actor: Actor = Depends(get_current_actor),
+    request_id: str = Depends(get_request_id),
+) -> dict[str, str]:
+    if not confirm:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Hard delete requires confirm=true.",
+        )
+    block = get_block_or_404(db, block_id, include_deleted=True)
+    before = serialize_model(block)
+    create_audit_event(
+        db,
+        actor_type=actor.actor_type,
+        actor_id=actor.actor_id,
+        action="block.hard_delete",
+        entity_type="block",
+        entity_id=block.id,
+        request_id=request_id,
+        before_json=before,
+        after_json={"deleted": True},
+    )
+    db.delete(block)
+    db.commit()
+    return {"status": "deleted"}
+
+
+@app.post(f"{settings.api_prefix}/blocks/{{block_id}}/links/drivers", response_model=BlockResponse)
+def link_block_drivers(
+    block_id: str,
+    payload: LinkDriversRequest,
+    db: Session = Depends(get_db),
+    actor: Actor = Depends(get_current_actor),
+    request_id: str = Depends(get_request_id),
+) -> BlockResponse:
+    block = get_block_or_404(db, block_id)
+    before = _block_response(db, block).model_dump(mode="json")
+    driver_ids = _dedupe_ids(payload.driver_ids)
+    for did in driver_ids:
+        driver = get_driver_or_404(db, did)
+        ensure_driver_is_linkable(driver)
+        if not block_has_driver_link(db, block.id, did):
+            db.add(BlockDriverLink(block_id=block.id, driver_id=did))
+
+    block.updated_by = actor.actor_id
+    block.version += 1
+    after = _block_response(db, block).model_dump(mode="json")
+    create_audit_event(
+        db,
+        actor_type=actor.actor_type,
+        actor_id=actor.actor_id,
+        action="block.link_drivers",
+        entity_type="block",
+        entity_id=block.id,
+        request_id=request_id,
+        before_json=before,
+        after_json=after,
+    )
+    db.commit()
+    db.refresh(block)
+    return _block_response(db, block)
+
+
+@app.delete(
+    f"{settings.api_prefix}/blocks/{{block_id}}/links/drivers/{{driver_id}}",
+    response_model=BlockResponse,
+)
+def unlink_block_driver(
+    block_id: str,
+    driver_id: str,
+    db: Session = Depends(get_db),
+    actor: Actor = Depends(get_current_actor),
+    request_id: str = Depends(get_request_id),
+) -> BlockResponse:
+    block = get_block_or_404(db, block_id)
+    before = _block_response(db, block).model_dump(mode="json")
+    link = db.scalar(
+        select(BlockDriverLink).where(
+            and_(BlockDriverLink.block_id == block_id, BlockDriverLink.driver_id == driver_id)
+        )
+    )
+    if not link:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Driver link not found.")
+    db.delete(link)
+    block.updated_by = actor.actor_id
+    block.version += 1
+    after = _block_response(db, block).model_dump(mode="json")
+    create_audit_event(
+        db,
+        actor_type=actor.actor_type,
+        actor_id=actor.actor_id,
+        action="block.unlink_driver",
+        entity_type="block",
+        entity_id=block.id,
+        request_id=request_id,
+        before_json=before,
+        after_json=after,
+    )
+    db.commit()
+    db.refresh(block)
+    return _block_response(db, block)
+
+
+@app.get(
+    f"{settings.api_prefix}/blocks/{{block_id}}/reasons",
+    response_model=list[BlockReasonResponse],
+)
+def list_block_reasons(
+    block_id: str,
+    include_deleted: bool = False,
+    db: Session = Depends(get_db),
+    _actor: Actor = Depends(get_current_actor),
+) -> list[BlockReason]:
+    get_block_or_404(db, block_id, include_deleted=True)
+    stmt = (
+        select(BlockReason)
+        .where(BlockReason.block_id == block_id)
+        .order_by(BlockReason.created_at.desc())
+    )
+    if not include_deleted:
+        stmt = stmt.where(BlockReason.deleted_at.is_(None))
+    return list(db.scalars(stmt))
+
+
+@app.post(
+    f"{settings.api_prefix}/blocks/{{block_id}}/reasons",
+    response_model=BlockReasonResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def add_block_reason(
+    block_id: str,
+    payload: ReasonCreate,
+    db: Session = Depends(get_db),
+    actor: Actor = Depends(get_current_actor),
+    request_id: str = Depends(get_request_id),
+) -> BlockReason:
+    get_block_or_404(db, block_id, include_deleted=True)
+    reason = BlockReason(
+        block_id=block_id,
+        reason_text=payload.reason_text,
+        author_type=actor.actor_type,
+        author_id=actor.actor_id,
+    )
+    db.add(reason)
+    db.flush()
+    create_audit_event(
+        db,
+        actor_type=actor.actor_type,
+        actor_id=actor.actor_id,
+        action="block_reason.create",
+        entity_type="block_reason",
+        entity_id=reason.id,
+        request_id=request_id,
+        before_json=None,
+        after_json=serialize_model(reason),
+        metadata_json={"block_id": block_id},
+    )
+    db.commit()
+    db.refresh(reason)
+    return reason
+
+
+@app.patch(
+    f"{settings.api_prefix}/blocks/reasons/{{reason_id}}",
+    response_model=BlockReasonResponse,
+)
+def update_block_reason(
+    reason_id: str,
+    payload: ReasonUpdate,
+    db: Session = Depends(get_db),
+    actor: Actor = Depends(get_current_actor),
+    request_id: str = Depends(get_request_id),
+) -> BlockReason:
+    reason = db.scalar(select(BlockReason).where(BlockReason.id == reason_id))
+    if not reason:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Block reason not found.")
+    before = serialize_model(reason)
+    reason.reason_text = payload.reason_text
+    create_audit_event(
+        db,
+        actor_type=actor.actor_type,
+        actor_id=actor.actor_id,
+        action="block_reason.update",
+        entity_type="block_reason",
+        entity_id=reason.id,
+        request_id=request_id,
+        before_json=before,
+        after_json=serialize_model(reason),
+        metadata_json={"block_id": reason.block_id},
+    )
+    db.commit()
+    db.refresh(reason)
+    return reason
+
+
+@app.delete(f"{settings.api_prefix}/blocks/reasons/{{reason_id}}", status_code=status.HTTP_200_OK)
+def delete_block_reason(
+    reason_id: str,
+    db: Session = Depends(get_db),
+    actor: Actor = Depends(get_current_actor),
+    request_id: str = Depends(get_request_id),
+) -> dict[str, str]:
+    reason = db.scalar(select(BlockReason).where(BlockReason.id == reason_id))
+    if not reason:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Block reason not found.")
+    before = serialize_model(reason)
+    reason.deleted_at = utcnow()
+    create_audit_event(
+        db,
+        actor_type=actor.actor_type,
+        actor_id=actor.actor_id,
+        action="block_reason.delete",
+        entity_type="block_reason",
+        entity_id=reason.id,
+        request_id=request_id,
+        before_json=before,
+        after_json=serialize_model(reason),
+        metadata_json={"block_id": reason.block_id},
     )
     db.commit()
     return {"status": "deleted"}

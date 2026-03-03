@@ -1,6 +1,9 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "./api";
 import type {
+  BlockCreate,
+  BlockListParams,
+  BlockUpdate,
   DriverCreate,
   DriverListParams,
   DriverUpdate,
@@ -27,6 +30,9 @@ export const queryKeys = {
   drivers: (params?: DriverListParams) => ["drivers", params ?? {}] as const,
   driver: (id: string) => ["drivers", id] as const,
   driversTree: () => ["drivers", "tree"] as const,
+  blocks: (params?: BlockListParams) => ["blocks", params ?? {}] as const,
+  block: (id: string) => ["blocks", id] as const,
+  blockReasons: (blockId: string) => ["blocks", blockId, "reasons"] as const,
 };
 
 // ── Task hooks ──────────────────────────────────────────────────────────────
@@ -320,6 +326,126 @@ export function useArchiveDriver() {
     mutationFn: (id: string) => api.archiveDriver(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["drivers"] });
+    },
+  });
+}
+
+// ── Block hooks ─────────────────────────────────────────────────────────────
+
+export function useBlocks(params?: BlockListParams) {
+  return useQuery({
+    queryKey: queryKeys.blocks(params),
+    queryFn: () => api.listBlocks(params),
+  });
+}
+
+export function useBlock(id: string | undefined) {
+  return useQuery({
+    queryKey: queryKeys.block(id!),
+    queryFn: () => api.getBlock(id!),
+    enabled: !!id,
+  });
+}
+
+export function useCreateBlock() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: BlockCreate) => api.createBlock(data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["blocks"] });
+    },
+  });
+}
+
+export function useUpdateBlock() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: BlockUpdate }) => api.updateBlock(id, data),
+    onSuccess: (_result, vars) => {
+      qc.invalidateQueries({ queryKey: ["blocks"] });
+      qc.invalidateQueries({ queryKey: queryKeys.block(vars.id) });
+    },
+  });
+}
+
+export function useArchiveBlock() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.archiveBlock(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["blocks"] });
+    },
+  });
+}
+
+export function useLinkBlockDrivers() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ blockId, data }: { blockId: string; data: LinkDriversRequest }) =>
+      api.linkBlockDrivers(blockId, data),
+    onSuccess: (_result, vars) => {
+      qc.invalidateQueries({ queryKey: queryKeys.block(vars.blockId) });
+    },
+  });
+}
+
+export function useUnlinkBlockDriver() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ blockId, driverId }: { blockId: string; driverId: string }) =>
+      api.unlinkBlockDriver(blockId, driverId),
+    onSuccess: (_result, vars) => {
+      qc.invalidateQueries({ queryKey: queryKeys.block(vars.blockId) });
+    },
+  });
+}
+
+// ── Block reason hooks ──────────────────────────────────────────────────────
+
+export function useBlockReasons(blockId: string | undefined) {
+  return useQuery({
+    queryKey: queryKeys.blockReasons(blockId!),
+    queryFn: () => api.listBlockReasons(blockId!),
+    enabled: !!blockId,
+  });
+}
+
+export function useAddBlockReason() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ blockId, data }: { blockId: string; data: ReasonCreate }) =>
+      api.addBlockReason(blockId, data),
+    onSuccess: (_result, vars) => {
+      qc.invalidateQueries({ queryKey: queryKeys.blockReasons(vars.blockId) });
+    },
+  });
+}
+
+export function useUpdateBlockReason() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      reasonId,
+      blockId,
+      data,
+    }: {
+      reasonId: string;
+      blockId: string;
+      data: ReasonUpdate;
+    }) => api.updateBlockReason(reasonId, data),
+    onSuccess: (_result, vars) => {
+      qc.invalidateQueries({ queryKey: queryKeys.blockReasons(vars.blockId) });
+    },
+  });
+}
+
+export function useDeleteBlockReason() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ reasonId, blockId }: { reasonId: string; blockId: string }) =>
+      api.deleteBlockReason(reasonId),
+    onSuccess: (_result, vars) => {
+      qc.invalidateQueries({ queryKey: queryKeys.blockReasons(vars.blockId) });
     },
   });
 }

@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useNavigate, useParams, Link } from "react-router";
-import { ArrowLeft, Archive, ChevronRight, Link2, Plus, Save, X } from "lucide-react";
+import { ArrowLeft, Archive, Link2, Plus, Save, X } from "lucide-react";
 import {
   useAddInitiativeReason,
   useArchiveInitiative,
@@ -15,24 +15,13 @@ import {
   useUpdateInitiative,
   useUpdateInitiativeReason,
 } from "../lib/hooks";
-import type { InitiativeState, TimingMode } from "../lib/types";
+import type { InitiativeState } from "../lib/types";
 import { DriverTypeBadge, InitiativeStateBadge } from "../components/badges";
+import { TimingEditor, type TimingState } from "../components/timing-editor";
 import { ReasonSection } from "../components/reason-section";
 import { LoadingSpinner } from "../components/loading";
 import { showToast } from "../components/toast";
-import { cn, formatDate, fromDateInputValue, toDateInputValue } from "../lib/utils";
-
-const INITIATIVE_TIMING_MODES: { value: TimingMode; label: string }[] = [
-  { value: "indefinite", label: "Indefinite" },
-  { value: "deadline", label: "Deadline" },
-  { value: "flexible", label: "Flexible" },
-];
-
-const GRACE_PRESETS = [
-  { label: "1 day", value: 1 },
-  { label: "3 days", value: 3 },
-  { label: "1 week", value: 7 },
-];
+import { cn, formatDate } from "../lib/utils";
 
 const INITIATIVE_STATE_OPTIONS: { value: InitiativeState; label: string }[] = [
   { value: "active", label: "Active" },
@@ -101,16 +90,21 @@ function InitiativeDetailForm({
   const [title, setTitle] = useState(initiative?.title ?? "");
   const [description, setDescription] = useState(initiative?.description ?? "");
   const [state, setState] = useState<InitiativeState>(initiative?.state ?? "active");
-  const [timingMode, setTimingMode] = useState<TimingMode>(initiative?.timing_mode ?? "indefinite");
-  const [deadlineAt, setDeadlineAt] = useState(toDateInputValue(initiative?.deadline_at));
-  const [graceDays, setGraceDays] = useState<number | "">(initiative?.grace_days ?? "");
-  const [customGrace, setCustomGrace] = useState(
-    initiative?.grace_days ? !GRACE_PRESETS.some((p) => p.value === initiative.grace_days) : false,
-  );
+
+  const [timing, setTiming] = useState<TimingState>({
+    timing_mode: initiative?.timing_mode ?? "indefinite",
+    deadline_at: initiative?.deadline_at ?? null,
+    grace_days: initiative?.grace_days ?? null,
+    periodic_type: null,
+    periodic_spec: null,
+    periodic_end_mode: null,
+    periodic_end_at: null,
+    periodic_end_count: null,
+  });
+
   const [selectedDriverIds, setSelectedDriverIds] = useState<string[]>(initiative?.driver_ids ?? []);
   const [showDriverPicker, setShowDriverPicker] = useState(false);
   const [dirty, setDirty] = useState(false);
-  const [timingOpen, setTimingOpen] = useState(false);
 
   const isSaving = createMutation.isPending || updateMutation.isPending;
 
@@ -118,24 +112,19 @@ function InitiativeDetailForm({
     if (!dirty) setDirty(true);
   }
 
-  function buildTimingPayload() {
-    if (timingMode === "indefinite" || timingMode === "none") {
-      return { timing_mode: timingMode, deadline_at: null, grace_days: null };
-    }
-    if (timingMode === "deadline") {
-      return { timing_mode: "deadline" as TimingMode, deadline_at: fromDateInputValue(deadlineAt), grace_days: null };
-    }
-    return {
-      timing_mode: "flexible" as TimingMode,
-      deadline_at: fromDateInputValue(deadlineAt),
-      grace_days: typeof graceDays === "number" ? graceDays : 1,
-    };
+  function handleTimingChange(next: TimingState) {
+    setTiming(next);
+    markDirty();
   }
 
   async function handleSave() {
     if (!title.trim()) return;
 
-    const timing = buildTimingPayload();
+    const timingPayload = {
+      timing_mode: timing.timing_mode,
+      deadline_at: timing.deadline_at,
+      grace_days: timing.grace_days,
+    };
 
     try {
       if (isNew) {
@@ -143,7 +132,7 @@ function InitiativeDetailForm({
           title: title.trim(),
           description: description.trim() || undefined,
           state,
-          ...timing,
+          ...timingPayload,
           driver_ids: selectedDriverIds,
         });
         showToast("success", "Initiative created");
@@ -155,7 +144,7 @@ function InitiativeDetailForm({
             title: title.trim(),
             description: description.trim() || null,
             state,
-            ...timing,
+            ...timingPayload,
           },
         });
         setDirty(false);
@@ -262,98 +251,7 @@ function InitiativeDetailForm({
         </div>
 
         {/* Timing */}
-        <div className="border-t border-zinc-100 px-6 py-4">
-          <button
-            type="button"
-            onClick={() => setTimingOpen(!timingOpen)}
-            className="inline-flex items-center gap-1.5 text-sm font-medium text-zinc-500 hover:text-zinc-700"
-          >
-            <ChevronRight className={cn("h-3.5 w-3.5 transition-transform duration-150", timingOpen && "rotate-90")} />
-            Timing
-          </button>
-
-          {timingOpen && (
-          <div className="mt-3">
-          <div className="mb-4 inline-flex rounded-lg border border-zinc-200 p-0.5">
-            {INITIATIVE_TIMING_MODES.map((mode) => (
-              <button
-                key={mode.value}
-                type="button"
-                onClick={() => { setTimingMode(mode.value); markDirty(); }}
-                className={cn(
-                  "rounded-md px-3 py-1.5 text-sm font-medium transition-all",
-                  timingMode === mode.value
-                    ? "bg-indigo-600 text-white shadow-sm"
-                    : "text-zinc-600 hover:text-zinc-900",
-                )}
-              >
-                {mode.label}
-              </button>
-            ))}
-          </div>
-
-          {(timingMode === "deadline" || timingMode === "flexible") && (
-            <div className="space-y-3">
-              <div>
-                <label className="label">Due date</label>
-                <input
-                  type="date"
-                  value={deadlineAt}
-                  onChange={(e) => { setDeadlineAt(e.target.value); markDirty(); }}
-                  className="input w-auto text-sm"
-                />
-              </div>
-              {timingMode === "flexible" && (
-                <div>
-                  <label className="label">Grace period</label>
-                  <div className="flex flex-wrap items-center gap-2">
-                    {GRACE_PRESETS.map((preset) => (
-                      <button
-                        key={preset.value}
-                        type="button"
-                        onClick={() => { setGraceDays(preset.value); setCustomGrace(false); markDirty(); }}
-                        className={cn(
-                          "rounded-lg border px-3 py-1.5 text-sm transition-all",
-                          !customGrace && graceDays === preset.value
-                            ? "border-indigo-300 bg-indigo-50 text-indigo-700"
-                            : "border-zinc-200 text-zinc-600 hover:border-zinc-300",
-                        )}
-                      >
-                        {preset.label}
-                      </button>
-                    ))}
-                    <button
-                      type="button"
-                      onClick={() => { setCustomGrace(true); if (typeof graceDays !== "number") setGraceDays(2); markDirty(); }}
-                      className={cn(
-                        "rounded-lg border px-3 py-1.5 text-sm transition-all",
-                        customGrace
-                          ? "border-indigo-300 bg-indigo-50 text-indigo-700"
-                          : "border-zinc-200 text-zinc-600 hover:border-zinc-300",
-                      )}
-                    >
-                      Custom
-                    </button>
-                    {customGrace && (
-                      <div className="flex items-center gap-1.5">
-                        <input
-                          type="number"
-                          min={1}
-                          value={graceDays}
-                          onChange={(e) => { setGraceDays(e.target.value ? Number(e.target.value) : ""); markDirty(); }}
-                          className="input w-20 text-sm"
-                        />
-                        <span className="text-sm text-zinc-500">days</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-          </div>
-          )}
-        </div>
+        <TimingEditor entityKind="initiative" value={timing} onChange={handleTimingChange} />
 
         {/* Linked Drivers */}
         <div className="border-t border-zinc-100 px-6 py-4">
@@ -509,4 +407,3 @@ function InitiativeDetailForm({
     </div>
   );
 }
-

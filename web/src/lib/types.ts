@@ -108,6 +108,38 @@ export interface InitiativeReason {
   deleted_at: string | null;
 }
 
+export interface Block {
+  id: string;
+  title: string;
+  description: string | null;
+  starts_at: string;
+  ends_at: string;
+  initiative_id: string | null;
+  periodic_type: PeriodicType | null;
+  periodic_spec: PeriodicSpec | null;
+  periodic_end_mode: PeriodicEndMode | null;
+  periodic_end_at: string | null;
+  periodic_end_count: number | null;
+  driver_ids: string[];
+  created_by: string;
+  updated_by: string;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+  version: number;
+}
+
+export interface BlockReason {
+  id: string;
+  block_id: string;
+  reason_text: string;
+  author_type: ActorType;
+  author_id: string;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+}
+
 // ── Request types ───────────────────────────────────────────────────────────
 
 export interface TaskCreate {
@@ -216,9 +248,48 @@ export interface InitiativeListParams {
   offset?: number;
 }
 
+export interface BlockCreate {
+  title: string;
+  description?: string | null;
+  starts_at: string;
+  ends_at: string;
+  initiative_id?: string | null;
+  periodic_type?: PeriodicType | null;
+  periodic_spec?: PeriodicSpec | null;
+  periodic_end_mode?: PeriodicEndMode | null;
+  periodic_end_at?: string | null;
+  periodic_end_count?: number | null;
+  driver_ids?: string[];
+}
+
+export interface BlockUpdate {
+  title?: string;
+  description?: string | null;
+  starts_at?: string;
+  ends_at?: string;
+  initiative_id?: string | null;
+  periodic_type?: PeriodicType | null;
+  periodic_spec?: PeriodicSpec | null;
+  periodic_end_mode?: PeriodicEndMode | null;
+  periodic_end_at?: string | null;
+  periodic_end_count?: number | null;
+  driver_ids?: string[];
+}
+
 export interface DriverListParams {
   include_deleted?: boolean;
   driver_type?: DriverType;
   state?: DriverState;
   parent_driver_id?: string | null;
+}
+
+export interface BlockListParams {
+  include_deleted?: boolean;
+  initiative_id?: string;
+  driver_id?: string;
+  starts_after?: string;
+  starts_before?: string;
+  query?: string;
+  limit?: number;
+  offset?: number;
 }

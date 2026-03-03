@@ -10,6 +10,8 @@ from sqlalchemy.orm import Session
 from app.models import (
     ActorType,
     AuditEvent,
+    Block,
+    BlockDriverLink,
     Driver,
     DriverState,
     Initiative,
@@ -161,6 +163,31 @@ def task_has_driver_link(db: Session, task_id: str, driver_id: str) -> bool:
         db.scalar(
             select(TaskDriverLink).where(
                 and_(TaskDriverLink.task_id == task_id, TaskDriverLink.driver_id == driver_id)
+            )
+        )
+        is not None
+    )
+
+
+def get_block_or_404(db: Session, block_id: str, *, include_deleted: bool = False) -> Block:
+    stmt: Select[tuple[Block]] = select(Block).where(Block.id == block_id)
+    if not include_deleted:
+        stmt = stmt.where(Block.deleted_at.is_(None))
+    block = db.scalar(stmt)
+    if not block:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Block not found.")
+    return block
+
+
+def get_block_driver_ids(db: Session, block_id: str) -> list[str]:
+    return list(db.scalars(select(BlockDriverLink.driver_id).where(BlockDriverLink.block_id == block_id)))
+
+
+def block_has_driver_link(db: Session, block_id: str, driver_id: str) -> bool:
+    return (
+        db.scalar(
+            select(BlockDriverLink).where(
+                and_(BlockDriverLink.block_id == block_id, BlockDriverLink.driver_id == driver_id)
             )
         )
         is not None

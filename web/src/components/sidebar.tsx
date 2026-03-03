@@ -1,5 +1,6 @@
 import { NavLink, Link, useLocation } from "react-router";
 import {
+  CalendarClock,
   CheckSquare,
   Target,
   Plus,
@@ -10,6 +11,7 @@ import { cn } from "../lib/utils";
 
 const navItems = [
   { to: "/tasks", label: "Tasks", icon: CheckSquare },
+  { to: "/blocks", label: "Blocks", icon: CalendarClock },
   { to: "/initiatives", label: "Initiatives", icon: Target },
   { to: "/drivers", label: "Drivers", icon: Layers3 },
 ];
@@ -69,6 +71,18 @@ export function Sidebar() {
         >
           <Plus className="h-[18px] w-[18px]" />
           New Task
+        </Link>
+        <Link
+          to="/blocks/new"
+          className={cn(
+            "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors duration-150",
+            location.pathname === "/blocks/new"
+              ? "bg-zinc-800 text-white"
+              : "text-zinc-400 hover:bg-zinc-800/60 hover:text-zinc-100",
+          )}
+        >
+          <Plus className="h-[18px] w-[18px]" />
+          New Block
         </Link>
         <Link
           to="/initiatives/new"
