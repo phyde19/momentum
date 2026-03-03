@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.models import (
     ActorType,
-    BlockType,
+    ScheduleType,
     DriverState,
     DriverType,
     InitiativeState,
@@ -193,23 +193,23 @@ class InitiativeReasonResponse(BaseModel):
     deleted_at: datetime | None
 
 
-class BlockSpan(BaseModel):
+class Block(BaseModel):
     starts_at: datetime
     ends_at: datetime
     slot_key: str | None = None
     offset_days: int | None = None
 
 
-class BlockBase(BaseModel):
+class ScheduleBase(BaseModel):
     title: str = Field(min_length=1, max_length=255)
     description: str | None = None
-    block_type: BlockType = BlockType.one_time
+    schedule_type: ScheduleType = ScheduleType.block_set
     starts_at: datetime
     ends_at: datetime
     initiative_id: str | None = None
     task_id: str | None = None
     occurrence_date: date | None = None
-    spans_json: list[BlockSpan] = Field(default_factory=list)
+    blocks_json: list[Block] = Field(default_factory=list)
     periodic_type: PeriodicType | None = None
     periodic_spec: PeriodicSpec | None = None
     periodic_end_mode: PeriodicEndMode | None = None
@@ -217,22 +217,22 @@ class BlockBase(BaseModel):
     periodic_end_count: int | None = Field(default=None, ge=1)
 
 
-class BlockCreate(BlockBase):
+class ScheduleCreate(ScheduleBase):
     starts_at: datetime | None = None
     ends_at: datetime | None = None
     driver_ids: list[str] = Field(default_factory=list)
 
 
-class BlockUpdate(BaseModel):
+class ScheduleUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=255)
     description: str | None = None
-    block_type: BlockType | None = None
+    schedule_type: ScheduleType | None = None
     starts_at: datetime | None = None
     ends_at: datetime | None = None
     initiative_id: str | None = None
     task_id: str | None = None
     occurrence_date: date | None = None
-    spans_json: list[BlockSpan] | None = None
+    blocks_json: list[Block] | None = None
     periodic_type: PeriodicType | None = None
     periodic_spec: PeriodicSpec | None = None
     periodic_end_mode: PeriodicEndMode | None = None
@@ -241,19 +241,19 @@ class BlockUpdate(BaseModel):
     driver_ids: list[str] | None = None
 
 
-class BlockResponse(BaseModel):
+class ScheduleResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
     title: str
     description: str | None
-    block_type: BlockType
+    schedule_type: ScheduleType
     starts_at: datetime
     ends_at: datetime
     initiative_id: str | None
     task_id: str | None
     occurrence_date: date | None
-    spans_json: list[BlockSpan]
+    blocks_json: list[Block]
     periodic_type: PeriodicType | None
     periodic_spec: PeriodicSpec | None
     periodic_end_mode: PeriodicEndMode | None
@@ -268,11 +268,11 @@ class BlockResponse(BaseModel):
     version: int
 
 
-class BlockReasonResponse(BaseModel):
+class ScheduleReasonResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
-    block_id: str
+    schedule_id: str
     reason_text: str
     author_type: ActorType
     author_id: str

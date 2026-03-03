@@ -15,24 +15,24 @@ import {
   Trash2,
 } from "lucide-react";
 import {
-  useArchiveBlock,
-  useAddBlockReason,
-  useCreateBlock,
+  useArchiveSchedule,
+  useAddScheduleReason,
+  useCreateSchedule,
   useDrivers,
   useInitiatives,
   useTask,
   useTasks,
-  useLinkBlockDrivers,
-  useBlock,
-  useBlockReasons,
-  useDeleteBlockReason,
-  useUnlinkBlockDriver,
-  useUpdateBlock,
-  useUpdateBlockReason,
+  useLinkScheduleDrivers,
+  useSchedule,
+  useScheduleReasons,
+  useDeleteScheduleReason,
+  useUnlinkScheduleDriver,
+  useUpdateSchedule,
+  useUpdateScheduleReason,
 } from "../lib/hooks";
 import type {
-  BlockType,
-  BlockSpan,
+  ScheduleType,
+  Block,
   PeriodicEndMode,
   PeriodicSpec,
   PeriodicType,
@@ -65,102 +65,96 @@ function composeDatetime(date: string, time: string): string | null {
   return new Date(`${date}T${time}`).toISOString();
 }
 
-const BLOCK_TYPE_OPTIONS: { value: BlockType; label: string; icon: typeof CalendarClock }[] = [
-  { value: "one_time", label: "One-time", icon: CalendarClock },
+const SCHEDULE_TYPE_OPTIONS: { value: ScheduleType; label: string; icon: typeof CalendarClock }[] = [
+  { value: "block_set", label: "Block Set", icon: CalendarClock },
   { value: "periodic", label: "Periodic", icon: Repeat },
   { value: "task", label: "Task", icon: ListChecks },
 ];
 
 // ── Page shell ───────────────────────────────────────────────────────────────
 
-export function BlockDetailPage() {
-  const { blockId } = useParams<{ blockId: string }>();
-  const isNew = !blockId;
-  const { data: block, isLoading } = useBlock(blockId);
+export function ScheduleDetailPage() {
+  const { scheduleId } = useParams<{ scheduleId: string }>();
+  const isNew = !scheduleId;
+  const { data: schedule, isLoading } = useSchedule(scheduleId);
 
   if (!isNew && isLoading) {
     return (
       <div className="animate-fade-in">
-        <Link to="/blocks" className="btn-ghost mb-4 !px-0 text-zinc-500">
+        <Link to="/schedules" className="btn-ghost mb-4 !px-0 text-zinc-500">
           <ArrowLeft className="h-4 w-4" />
-          Back to Blocks
+          Back to Schedules
         </Link>
         <LoadingSpinner />
       </div>
     );
   }
 
-  if (!isNew && !block) {
+  if (!isNew && !schedule) {
     return (
       <div className="animate-fade-in">
-        <Link to="/blocks" className="btn-ghost mb-4 !px-0 text-zinc-500">
+        <Link to="/schedules" className="btn-ghost mb-4 !px-0 text-zinc-500">
           <ArrowLeft className="h-4 w-4" />
-          Back to Blocks
+          Back to Schedules
         </Link>
         <div className="rounded-xl border border-zinc-200 bg-white p-8 text-center shadow-sm">
-          <p className="text-sm text-zinc-500">Block not found</p>
+          <p className="text-sm text-zinc-500">Schedule not found</p>
         </div>
       </div>
     );
   }
 
-  return <BlockDetailForm key={blockId ?? "new"} blockId={blockId} isNew={isNew} />;
+  return <ScheduleDetailForm key={scheduleId ?? "new"} scheduleId={scheduleId} isNew={isNew} />;
 }
 
 // ── Form component ───────────────────────────────────────────────────────────
 
-function BlockDetailForm({ blockId, isNew }: { blockId?: string; isNew: boolean }) {
+function ScheduleDetailForm({ scheduleId, isNew }: { scheduleId?: string; isNew: boolean }) {
   const navigate = useNavigate();
 
-  const { data: block } = useBlock(blockId);
+  const { data: schedule } = useSchedule(scheduleId);
   const { data: initiatives } = useInitiatives();
   const { data: allTasks } = useTasks();
   const { data: drivers } = useDrivers();
-  const { data: reasons = [], isLoading: reasonsLoading } = useBlockReasons(blockId);
+  const { data: reasons = [], isLoading: reasonsLoading } = useScheduleReasons(scheduleId);
 
-  const createMutation = useCreateBlock();
-  const updateMutation = useUpdateBlock();
-  const archiveMutation = useArchiveBlock();
-  const linkDriversMutation = useLinkBlockDrivers();
-  const unlinkDriverMutation = useUnlinkBlockDriver();
-  const addReasonMutation = useAddBlockReason();
-  const updateReasonMutation = useUpdateBlockReason();
-  const deleteReasonMutation = useDeleteBlockReason();
+  const createMutation = useCreateSchedule();
+  const updateMutation = useUpdateSchedule();
+  const archiveMutation = useArchiveSchedule();
+  const linkDriversMutation = useLinkScheduleDrivers();
+  const unlinkDriverMutation = useUnlinkScheduleDriver();
+  const addReasonMutation = useAddScheduleReason();
+  const updateReasonMutation = useUpdateScheduleReason();
+  const deleteReasonMutation = useDeleteScheduleReason();
 
-  const [title, setTitle] = useState(block?.title ?? "");
-  const [description, setDescription] = useState(block?.description ?? "");
-  const [initiativeId, setInitiativeId] = useState(block?.initiative_id ?? "");
-  const [taskId, setTaskId] = useState(block?.task_id ?? "");
+  const [title, setTitle] = useState(schedule?.title ?? "");
+  const [description, setDescription] = useState(schedule?.description ?? "");
+  const [initiativeId, setInitiativeId] = useState(schedule?.initiative_id ?? "");
+  const [taskId, setTaskId] = useState(schedule?.task_id ?? "");
 
-  const [blockType, setBlockType] = useState<BlockType>(block?.block_type ?? "one_time");
-
-  // One-time fields
-  const [startDate, setStartDate] = useState(toDateValue(block?.starts_at ?? null));
-  const [startTime, setStartTime] = useState(toTimeValue(block?.starts_at ?? null) || "09:00");
-  const [endDate, setEndDate] = useState(toDateValue(block?.ends_at ?? null));
-  const [endTime, setEndTime] = useState(toTimeValue(block?.ends_at ?? null) || "10:00");
+  const [scheduleType, setScheduleType] = useState<ScheduleType>(schedule?.schedule_type ?? "block_set");
 
   // Periodic fields
-  const [recurDate, setRecurDate] = useState(toDateValue(block?.starts_at ?? null));
-  const [recurStartTime, setRecurStartTime] = useState(toTimeValue(block?.starts_at ?? null));
-  const [recurEndTime, setRecurEndTime] = useState(toTimeValue(block?.ends_at ?? null));
-  const [periodicType, setPeriodicType] = useState<PeriodicType>(block?.periodic_type ?? "weekly");
-  const [periodicSpec, setPeriodicSpec] = useState<PeriodicSpec>(block?.periodic_spec ?? { days: [] });
-  const [periodicEndMode, setPeriodicEndMode] = useState<PeriodicEndMode>(block?.periodic_end_mode ?? "never");
-  const [periodicEndAt, setPeriodicEndAt] = useState(toDateValue(block?.periodic_end_at ?? null));
-  const [periodicEndCount, setPeriodicEndCount] = useState<number | "">(block?.periodic_end_count ?? "");
+  const [recurDate, setRecurDate] = useState(toDateValue(schedule?.starts_at ?? null));
+  const [recurStartTime, setRecurStartTime] = useState(toTimeValue(schedule?.starts_at ?? null));
+  const [recurEndTime, setRecurEndTime] = useState(toTimeValue(schedule?.ends_at ?? null));
+  const [periodicType, setPeriodicType] = useState<PeriodicType>(schedule?.periodic_type ?? "weekly");
+  const [periodicSpec, setPeriodicSpec] = useState<PeriodicSpec>(schedule?.periodic_spec ?? { days: [] });
+  const [periodicEndMode, setPeriodicEndMode] = useState<PeriodicEndMode>(schedule?.periodic_end_mode ?? "never");
+  const [periodicEndAt, setPeriodicEndAt] = useState(toDateValue(schedule?.periodic_end_at ?? null));
+  const [periodicEndCount, setPeriodicEndCount] = useState<number | "">(schedule?.periodic_end_count ?? "");
 
-  // Task-type spans
-  const [spans, setSpans] = useState<BlockSpan[]>(block?.spans_json ?? []);
+  // Blocks (used by both block_set and task types)
+  const [blocks, setBlocks] = useState<Block[]>(schedule?.blocks_json ?? []);
 
-  const [selectedDriverIds, setSelectedDriverIds] = useState<string[]>(block?.driver_ids ?? []);
+  const [selectedDriverIds, setSelectedDriverIds] = useState<string[]>(schedule?.driver_ids ?? []);
   const [showDriverPicker, setShowDriverPicker] = useState(false);
   const [dirty, setDirty] = useState(false);
 
   const isSaving = createMutation.isPending || updateMutation.isPending;
 
   // Fetch linked task for task-type blocks
-  const linkedTaskId = blockType === "task" ? taskId : undefined;
+  const linkedTaskId = scheduleType === "task" ? taskId : undefined;
   const { data: linkedTask } = useTask(linkedTaskId || undefined);
 
   function markDirty() {
@@ -169,9 +163,9 @@ function BlockDetailForm({ blockId, isNew }: { blockId?: string; isNew: boolean 
 
   const canSave = (() => {
     if (!title.trim()) return false;
-    if (blockType === "one_time") return !!startDate && !!startTime && !!endDate && !!endTime;
-    if (blockType === "periodic") return !!recurDate && !!recurStartTime && !!recurEndTime;
-    if (blockType === "task") return !!taskId;
+    if (scheduleType === "block_set") return blocks.length > 0;
+    if (scheduleType === "periodic") return !!recurDate && !!recurStartTime && !!recurEndTime;
+    if (scheduleType === "task") return !!taskId;
     return false;
   })();
 
@@ -181,10 +175,12 @@ function BlockDetailForm({ blockId, isNew }: { blockId?: string; isNew: boolean 
     let computedStartsAt: string;
     let computedEndsAt: string;
 
-    if (blockType === "one_time") {
-      computedStartsAt = composeDatetime(startDate, startTime)!;
-      computedEndsAt = composeDatetime(endDate, endTime)!;
-    } else if (blockType === "periodic") {
+    if (scheduleType === "block_set") {
+      const starts = blocks.map((b) => b.starts_at).sort();
+      const ends = blocks.map((b) => b.ends_at).sort();
+      computedStartsAt = starts[0];
+      computedEndsAt = ends[ends.length - 1];
+    } else if (scheduleType === "periodic") {
       computedStartsAt = composeDatetime(recurDate, recurStartTime)!;
       computedEndsAt = composeDatetime(recurDate, recurEndTime)!;
     } else {
@@ -196,21 +192,21 @@ function BlockDetailForm({ blockId, isNew }: { blockId?: string; isNew: boolean 
     const payload = {
       title: title.trim(),
       description: description.trim() || null,
-      block_type: blockType,
+      schedule_type: scheduleType,
       starts_at: computedStartsAt,
       ends_at: computedEndsAt,
       initiative_id: initiativeId || null,
-      task_id: blockType === "task" ? (taskId || null) : null,
-      spans_json: blockType === "task" ? spans : [],
-      periodic_type: blockType === "periodic" ? periodicType : null,
-      periodic_spec: blockType === "periodic" ? periodicSpec : null,
-      periodic_end_mode: blockType === "periodic" ? periodicEndMode : null,
+      task_id: scheduleType === "task" ? (taskId || null) : null,
+      blocks_json: (scheduleType === "task" || scheduleType === "block_set") ? blocks : [],
+      periodic_type: scheduleType === "periodic" ? periodicType : null,
+      periodic_spec: scheduleType === "periodic" ? periodicSpec : null,
+      periodic_end_mode: scheduleType === "periodic" ? periodicEndMode : null,
       periodic_end_at:
-        blockType === "periodic" && periodicEndMode === "until_date" && periodicEndAt
+        scheduleType === "periodic" && periodicEndMode === "until_date" && periodicEndAt
           ? new Date(periodicEndAt + "T23:59:59").toISOString()
           : null,
       periodic_end_count:
-        blockType === "periodic" && periodicEndMode === "after_count"
+        scheduleType === "periodic" && periodicEndMode === "after_count"
           ? (periodicEndCount || null)
           : null,
     };
@@ -221,10 +217,10 @@ function BlockDetailForm({ blockId, isNew }: { blockId?: string; isNew: boolean 
           ...payload,
           driver_ids: selectedDriverIds.length > 0 ? selectedDriverIds : undefined,
         });
-        showToast("success", "Block created");
-        navigate(`/blocks/${created.id}`, { replace: true });
-      } else if (blockId) {
-        await updateMutation.mutateAsync({ id: blockId, data: payload });
+        showToast("success", "Schedule created");
+        navigate(`/schedules/${created.id}`, { replace: true });
+      } else if (scheduleId) {
+        await updateMutation.mutateAsync({ id: scheduleId, data: payload });
         setDirty(false);
         showToast("success", "Changes saved");
       }
@@ -234,12 +230,12 @@ function BlockDetailForm({ blockId, isNew }: { blockId?: string; isNew: boolean 
   }
 
   function handleArchive() {
-    if (!blockId) return;
-    if (confirm("Archive this block?")) {
-      archiveMutation.mutate(blockId, {
+    if (!scheduleId) return;
+    if (confirm("Archive this schedule?")) {
+      archiveMutation.mutate(scheduleId, {
         onSuccess: () => {
-          showToast("success", "Block archived");
-          navigate("/blocks");
+          showToast("success", "Schedule archived");
+          navigate("/schedules");
         },
         onError: (err) => showToast("error", err.message),
       });
@@ -247,12 +243,12 @@ function BlockDetailForm({ blockId, isNew }: { blockId?: string; isNew: boolean 
   }
 
   function handleLinkDriver(driverId: string) {
-    if (!blockId) {
+    if (!scheduleId) {
       setSelectedDriverIds((prev) => [...prev, driverId]);
       markDirty();
     } else {
       linkDriversMutation.mutate(
-        { blockId, data: { driver_ids: [driverId] } },
+        { scheduleId: scheduleId, data: { driver_ids: [driverId] } },
         { onError: (err) => showToast("error", err.message) },
       );
     }
@@ -260,12 +256,12 @@ function BlockDetailForm({ blockId, isNew }: { blockId?: string; isNew: boolean 
   }
 
   function handleUnlinkDriver(driverId: string) {
-    if (!blockId) {
+    if (!scheduleId) {
       setSelectedDriverIds((prev) => prev.filter((id) => id !== driverId));
       markDirty();
     } else {
       unlinkDriverMutation.mutate(
-        { blockId, driverId },
+        { scheduleId: scheduleId, driverId },
         { onError: (err) => showToast("error", err.message) },
       );
     }
@@ -300,8 +296,8 @@ function BlockDetailForm({ blockId, isNew }: { blockId?: string; isNew: boolean 
   }
 
   const linkedDriverIds = useMemo(
-    () => new Set(isNew ? selectedDriverIds : (block?.driver_ids ?? selectedDriverIds)),
-    [isNew, selectedDriverIds, block?.driver_ids],
+    () => new Set(isNew ? selectedDriverIds : (schedule?.driver_ids ?? selectedDriverIds)),
+    [isNew, selectedDriverIds, schedule?.driver_ids],
   );
   const availableDrivers = drivers?.filter(
     (driver) => !linkedDriverIds.has(driver.id) && !driver.deleted_at && driver.state !== "archived",
@@ -310,9 +306,9 @@ function BlockDetailForm({ blockId, isNew }: { blockId?: string; isNew: boolean 
 
   return (
     <div className="animate-fade-in">
-      <Link to="/blocks" className="btn-ghost mb-4 !px-0 text-zinc-500">
+      <Link to="/schedules" className="btn-ghost mb-4 !px-0 text-zinc-500">
         <ArrowLeft className="h-4 w-4" />
-        Back to Blocks
+        Back to Schedules
       </Link>
 
       <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm">
@@ -321,7 +317,7 @@ function BlockDetailForm({ blockId, isNew }: { blockId?: string; isNew: boolean 
           <input
             value={title}
             onChange={(e) => { setTitle(e.target.value); markDirty(); }}
-            placeholder="Block title"
+            placeholder="Schedule title"
             className="w-full border-none bg-transparent text-xl font-semibold text-zinc-900 outline-none placeholder:text-zinc-300"
             autoFocus={isNew}
           />
@@ -330,16 +326,20 @@ function BlockDetailForm({ blockId, isNew }: { blockId?: string; isNew: boolean 
         {/* Block type selector */}
         <div className="px-6 py-4">
           <div className="inline-flex rounded-lg border border-zinc-200 bg-zinc-50 p-0.5">
-            {BLOCK_TYPE_OPTIONS.map((opt) => {
+            {SCHEDULE_TYPE_OPTIONS.map((opt) => {
               const Icon = opt.icon;
               return (
                 <button
                   key={opt.value}
                   type="button"
-                  onClick={() => { setBlockType(opt.value); markDirty(); }}
+                  onClick={() => {
+                    setScheduleType(opt.value);
+                    if (opt.value !== scheduleType) setBlocks([]);
+                    markDirty();
+                  }}
                   className={cn(
                     "inline-flex items-center gap-1.5 rounded-md px-3.5 py-1.5 text-sm font-medium transition-all",
-                    blockType === opt.value
+                    scheduleType === opt.value
                       ? "bg-white text-zinc-900 shadow-sm"
                       : "text-zinc-500 hover:text-zinc-700",
                   )}
@@ -352,48 +352,18 @@ function BlockDetailForm({ blockId, isNew }: { blockId?: string; isNew: boolean 
           </div>
         </div>
 
-        {/* ── One-time scheduling ────────────────────────────────────────── */}
-        {blockType === "one_time" && (
+        {/* ── Block Set scheduling ────────────────────────────────────────── */}
+        {scheduleType === "block_set" && (
           <div className="border-t border-zinc-100 px-6 py-4">
-            <div className="flex flex-wrap gap-4">
-              <div>
-                <label className="label">Start date</label>
-                <input
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => { setStartDate(e.target.value); markDirty(); }}
-                  className="input w-auto text-sm"
-                />
-              </div>
-              <div>
-                <label className="label">Start time</label>
-                <TimeInput
-                  value={startTime}
-                  onChange={(v) => { setStartTime(v); markDirty(); }}
-                />
-              </div>
-              <div>
-                <label className="label">End date</label>
-                <input
-                  type="date"
-                  value={endDate}
-                  onChange={(e) => { setEndDate(e.target.value); markDirty(); }}
-                  className="input w-auto text-sm"
-                />
-              </div>
-              <div>
-                <label className="label">End time</label>
-                <TimeInput
-                  value={endTime}
-                  onChange={(v) => { setEndTime(v); markDirty(); }}
-                />
-              </div>
-            </div>
+            <FreeformBlocksEditor
+              blocks={blocks}
+              onChange={(next) => { setBlocks(next); markDirty(); }}
+            />
           </div>
         )}
 
         {/* ── Periodic scheduling ──────────────────────────────────────── */}
-        {blockType === "periodic" && (
+        {scheduleType === "periodic" && (
           <div className="border-t border-zinc-100 px-6 py-4 space-y-5">
             <div className="space-y-4 rounded-lg border border-zinc-200 bg-zinc-50/50 p-4">
               <div>
@@ -585,7 +555,7 @@ function BlockDetailForm({ blockId, isNew }: { blockId?: string; isNew: boolean 
         )}
 
         {/* ── Task-type configuration ─────────────────────────────────── */}
-        {blockType === "task" && (
+        {scheduleType === "task" && (
           <div className="border-t border-zinc-100 px-6 py-4 space-y-4">
             <div>
               <label className="label">Linked Task</label>
@@ -594,10 +564,10 @@ function BlockDetailForm({ blockId, isNew }: { blockId?: string; isNew: boolean 
                 onChange={(e) => {
                   const newId = e.target.value;
                   setTaskId(newId);
-                  setSpans([]);
+                  setBlocks([]);
                   const selectedTask = allTasks?.find((t) => t.id === newId);
-                  if (selectedTask && (!title.trim() || title.startsWith("Block: "))) {
-                    setTitle(`Block: ${selectedTask.title}`);
+                  if (selectedTask && (!title.trim() || title.startsWith("Schedule: "))) {
+                    setTitle(`Schedule: ${selectedTask.title}`);
                   }
                   markDirty();
                 }}
@@ -613,17 +583,17 @@ function BlockDetailForm({ blockId, isNew }: { blockId?: string; isNew: boolean 
             </div>
 
             {linkedTask && (
-              <TaskSpansEditor
+              <TaskBlocksEditor
                 task={linkedTask}
-                spans={spans}
-                onChange={(next) => { setSpans(next); markDirty(); }}
+                blocks={blocks}
+                onChange={(next) => { setBlocks(next); markDirty(); }}
               />
             )}
           </div>
         )}
 
-        {/* Initiative (for one_time and periodic) */}
-        {blockType !== "task" && (
+        {/* Initiative (for block_set and periodic) */}
+        {scheduleType !== "task" && (
           <div className="border-t border-zinc-100 px-6 py-4">
             <div className="flex flex-wrap gap-4">
               <div>
@@ -717,16 +687,16 @@ function BlockDetailForm({ blockId, isNew }: { blockId?: string; isNew: boolean 
         </div>
 
         {/* Reasons */}
-        {!isNew && blockId && (
+        {!isNew && scheduleId && (
           <div className="border-t border-zinc-100 px-6 py-4">
             <ReasonSection
               reasons={reasons}
               isLoading={reasonsLoading}
-              onAdd={(text) => addReasonMutation.mutate({ blockId, data: { reason_text: text } })}
+              onAdd={(text) => addReasonMutation.mutate({ scheduleId: scheduleId, data: { reason_text: text } })}
               onUpdate={(reasonId, text) =>
-                updateReasonMutation.mutate({ reasonId, blockId, data: { reason_text: text } })
+                updateReasonMutation.mutate({ reasonId, scheduleId: scheduleId, data: { reason_text: text } })
               }
-              onDelete={(reasonId) => deleteReasonMutation.mutate({ reasonId, blockId })}
+              onDelete={(reasonId) => deleteReasonMutation.mutate({ reasonId, scheduleId: scheduleId })}
               isAdding={addReasonMutation.isPending}
             />
           </div>
@@ -735,10 +705,10 @@ function BlockDetailForm({ blockId, isNew }: { blockId?: string; isNew: boolean 
         {/* Footer */}
         <div className="flex items-center justify-between border-t border-zinc-100 bg-zinc-50/80 px-6 py-4">
           <div className="text-xs text-zinc-400">
-            {block && (
+            {schedule && (
               <>
-                Created {formatDate(block.created_at)} &middot; Updated{" "}
-                {formatDate(block.updated_at)} &middot; v{block.version}
+                Created {formatDate(schedule.created_at)} &middot; Updated{" "}
+                {formatDate(schedule.updated_at)} &middot; v{schedule.version}
               </>
             )}
           </div>
@@ -759,7 +729,7 @@ function BlockDetailForm({ blockId, isNew }: { blockId?: string; isNew: boolean 
               className="btn-primary"
             >
               <Save className="h-4 w-4" />
-              {isNew ? "Create Block" : "Save Changes"}
+              {isNew ? "Create Schedule" : "Save Changes"}
             </button>
           </div>
         </div>
@@ -777,7 +747,7 @@ function BlockDetailForm({ blockId, isNew }: { blockId?: string; isNew: boolean 
 
 // ── Task Spans Editor ────────────────────────────────────────────────────────
 
-interface TaskForSpans {
+interface TaskForBlocks {
   timing_mode: string;
   periodic_type: PeriodicType | null;
   periodic_spec: PeriodicSpec | null;
@@ -787,82 +757,82 @@ interface TaskForSpans {
   periodic_end_count: number | null;
 }
 
-function TaskSpansEditor({
+function TaskBlocksEditor({
   task,
-  spans,
+  blocks,
   onChange,
 }: {
-  task: TaskForSpans;
-  spans: BlockSpan[];
-  onChange: (spans: BlockSpan[]) => void;
+  task: TaskForBlocks;
+  blocks: Block[];
+  onChange: (blocks: Block[]) => void;
 }) {
   const isPeriodic = task.timing_mode === "periodic" && task.periodic_type;
 
   if (isPeriodic) {
     return (
-      <OccurrenceSpansEditor
+      <OccurrenceBlocksEditor
         task={task}
-        spans={spans}
+        blocks={blocks}
         onChange={onChange}
       />
     );
   }
 
   return (
-    <FreeformSpansEditor spans={spans} onChange={onChange} />
+    <FreeformBlocksEditor blocks={blocks} onChange={onChange} />
   );
 }
 
 // ── Freeform Spans Editor (non-periodic tasks) ──────────────────────────────
 
-function FreeformSpansEditor({
-  spans,
+function FreeformBlocksEditor({
+  blocks,
   onChange,
 }: {
-  spans: BlockSpan[];
-  onChange: (spans: BlockSpan[]) => void;
+  blocks: Block[];
+  onChange: (blocks: Block[]) => void;
 }) {
-  function addSpan() {
+  function addBlock() {
     const today = new Date().toISOString().slice(0, 10);
-    const newSpan: BlockSpan = {
+    const inst: Block = {
       starts_at: new Date(`${today}T09:00:00`).toISOString(),
       ends_at: new Date(`${today}T10:00:00`).toISOString(),
     };
-    onChange([...spans, newSpan]);
+    onChange([...blocks, inst]);
   }
 
-  function updateSpan(index: number, field: "starts_at" | "ends_at", value: string) {
-    const updated = spans.map((s, i) => (i === index ? { ...s, [field]: value } : s));
+  function updateBlock(index: number, field: "starts_at" | "ends_at", value: string) {
+    const updated = blocks.map((s, i) => (i === index ? { ...s, [field]: value } : s));
     onChange(updated);
   }
 
-  function removeSpan(index: number) {
-    onChange(spans.filter((_, i) => i !== index));
+  function removeBlock(index: number) {
+    onChange(blocks.filter((_, i) => i !== index));
   }
 
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <h4 className="text-sm font-medium text-zinc-700">Time spans</h4>
+        <h4 className="text-sm font-medium text-zinc-700">Blocks</h4>
         <button
           type="button"
-          onClick={addSpan}
+          onClick={addBlock}
           className="flex items-center gap-1 rounded-md bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-600 hover:bg-indigo-100 transition-colors"
         >
           <Plus className="h-3 w-3" />
-          Add span
+          Add block
         </button>
       </div>
 
-      {spans.length === 0 && (
-        <p className="text-xs italic text-zinc-400">No spans scheduled. Add one to set when you'll work on this task.</p>
+      {blocks.length === 0 && (
+        <p className="text-xs italic text-zinc-400">No blocks scheduled yet. Add one to reserve time.</p>
       )}
 
-      {spans.map((span, idx) => {
-        const sDate = toDateValue(span.starts_at);
-        const sTime = toTimeValue(span.starts_at) || "09:00";
-        const eDate = toDateValue(span.ends_at);
-        const eTime = toTimeValue(span.ends_at) || "10:00";
+      {blocks.map((inst, idx) => {
+        const sDate = toDateValue(inst.starts_at);
+        const sTime = toTimeValue(inst.starts_at) || "09:00";
+        const eDate = toDateValue(inst.ends_at);
+        const eTime = toTimeValue(inst.ends_at) || "10:00";
         return (
           <div key={idx} className="flex items-end gap-2 rounded-lg border border-zinc-200 bg-zinc-50/50 p-3">
             <div>
@@ -871,8 +841,8 @@ function FreeformSpansEditor({
                 type="date"
                 value={sDate}
                 onChange={(e) => {
-                  const val = composeDatetime(e.target.value, sTime) ?? span.starts_at;
-                  updateSpan(idx, "starts_at", val);
+                  const val = composeDatetime(e.target.value, sTime) ?? inst.starts_at;
+                  updateBlock(idx, "starts_at", val);
                 }}
                 className="input w-auto text-sm"
               />
@@ -881,8 +851,8 @@ function FreeformSpansEditor({
               <TimeInput
                 value={sTime}
                 onChange={(t) => {
-                  const val = composeDatetime(sDate, t) ?? span.starts_at;
-                  updateSpan(idx, "starts_at", val);
+                  const val = composeDatetime(sDate, t) ?? inst.starts_at;
+                  updateBlock(idx, "starts_at", val);
                 }}
               />
             </div>
@@ -892,8 +862,8 @@ function FreeformSpansEditor({
                 type="date"
                 value={eDate}
                 onChange={(e) => {
-                  const val = composeDatetime(e.target.value, eTime) ?? span.ends_at;
-                  updateSpan(idx, "ends_at", val);
+                  const val = composeDatetime(e.target.value, eTime) ?? inst.ends_at;
+                  updateBlock(idx, "ends_at", val);
                 }}
                 className="input w-auto text-sm"
               />
@@ -902,16 +872,16 @@ function FreeformSpansEditor({
               <TimeInput
                 value={eTime}
                 onChange={(t) => {
-                  const val = composeDatetime(eDate, t) ?? span.ends_at;
-                  updateSpan(idx, "ends_at", val);
+                  const val = composeDatetime(eDate, t) ?? inst.ends_at;
+                  updateBlock(idx, "ends_at", val);
                 }}
               />
             </div>
             <button
               type="button"
-              onClick={() => removeSpan(idx)}
+              onClick={() => removeBlock(idx)}
               className="mb-0.5 rounded p-1.5 text-zinc-400 hover:bg-red-50 hover:text-red-500 transition-colors"
-              title="Remove span"
+              title="Remove block"
             >
               <Trash2 className="h-4 w-4" />
             </button>
@@ -1011,7 +981,7 @@ function offsetBounds(periodicType: string | null, periodicSpec: PeriodicSpec | 
 }
 
 function nextOccurrencesForSlot(
-  task: TaskForSpans,
+  task: TaskForBlocks,
   slotKey: string,
   count: number,
 ): string[] {
@@ -1091,16 +1061,16 @@ function applyOffset(ymd: string, offset: number): string {
   return `${y}-${m}-${day}`;
 }
 
-// ── Slot-based Spans Editor (periodic tasks) ────────────────────────────────
+// ── Slot-based Instance Editor (periodic tasks) ─────────────────────────────
 
-function OccurrenceSpansEditor({
+function OccurrenceBlocksEditor({
   task,
-  spans,
+  blocks,
   onChange,
 }: {
-  task: TaskForSpans;
-  spans: BlockSpan[];
-  onChange: (spans: BlockSpan[]) => void;
+  task: TaskForBlocks;
+  blocks: Block[];
+  onChange: (blocks: Block[]) => void;
 }) {
   const periodicType = task.periodic_type;
 
@@ -1114,26 +1084,26 @@ function OccurrenceSpansEditor({
     [periodicType, task.periodic_spec],
   );
 
-  function getSpanForSlot(key: string): BlockSpan | undefined {
-    return spans.find((s) => s.slot_key === key);
+  function getBlockForSlot(key: string): Block | undefined {
+    return blocks.find((s) => s.slot_key === key);
   }
 
-  function setSpanForSlot(key: string, offset: number, startTime: string, endTime: string) {
+  function setBlockForSlot(key: string, offset: number, startTime: string, endTime: string) {
     const clamped = Math.max(bounds.min, Math.min(bounds.max, offset));
     const today = new Date().toISOString().slice(0, 10);
     const startsAt = new Date(`${today}T${startTime}:00`).toISOString();
     const endsAt = new Date(`${today}T${endTime}:00`).toISOString();
-    const span: BlockSpan = { starts_at: startsAt, ends_at: endsAt, slot_key: key, offset_days: clamped };
-    const existing = spans.findIndex((s) => s.slot_key === key);
+    const inst: Block = { starts_at: startsAt, ends_at: endsAt, slot_key: key, offset_days: clamped };
+    const existing = blocks.findIndex((s) => s.slot_key === key);
     if (existing >= 0) {
-      onChange(spans.map((s, i) => (i === existing ? span : s)));
+      onChange(blocks.map((s, i) => (i === existing ? inst : s)));
     } else {
-      onChange([...spans, span]);
+      onChange([...blocks, inst]);
     }
   }
 
-  function clearSpanForSlot(key: string) {
-    onChange(spans.filter((s) => s.slot_key !== key));
+  function clearBlockForSlot(key: string) {
+    onChange(blocks.filter((s) => s.slot_key !== key));
   }
 
   return (
@@ -1141,7 +1111,7 @@ function OccurrenceSpansEditor({
       <div className="flex items-center justify-between">
         <h4 className="text-sm font-medium text-zinc-700">Schedule per occurrence</h4>
         <span className="text-xs text-zinc-400">
-          {spans.length} of {slots.length} configured
+          {blocks.length} of {slots.length} configured
         </span>
       </div>
 
@@ -1153,14 +1123,14 @@ function OccurrenceSpansEditor({
 
       <div className="space-y-2">
         {slots.map((slot) => (
-          <SlotSpanRow
+          <SlotBlockRow
             key={slot.key}
             slot={slot}
             task={task}
             bounds={bounds}
-            span={getSpanForSlot(slot.key)}
-            onSet={(offset, start, end) => setSpanForSlot(slot.key, offset, start, end)}
-            onClear={() => clearSpanForSlot(slot.key)}
+            block={getBlockForSlot(slot.key)}
+            onSet={(offset, start, end) => setBlockForSlot(slot.key, offset, start, end)}
+            onClear={() => clearBlockForSlot(slot.key)}
           />
         ))}
       </div>
@@ -1168,35 +1138,35 @@ function OccurrenceSpansEditor({
   );
 }
 
-function SlotSpanRow({
+function SlotBlockRow({
   slot,
   task,
   bounds,
-  span,
+  block,
   onSet,
   onClear,
 }: {
   slot: PeriodSlot;
-  task: TaskForSpans;
+  task: TaskForBlocks;
   bounds: { min: number; max: number };
-  span: BlockSpan | undefined;
+  block: Block | undefined;
   onSet: (offset: number, startTime: string, endTime: string) => void;
   onClear: () => void;
 }) {
-  const offset = span?.offset_days ?? 0;
-  const startTime = span ? toTimeValue(span.starts_at) : "09:00";
-  const endTime = span ? toTimeValue(span.ends_at) : "10:00";
+  const offset = block?.offset_days ?? 0;
+  const startTime = block ? toTimeValue(block.starts_at) : "09:00";
+  const endTime = block ? toTimeValue(block.ends_at) : "10:00";
 
   const preview = useMemo(() => {
-    if (!span) return [];
+    if (!block) return [];
     const occs = nextOccurrencesForSlot(task, slot.key, 2);
     return occs.map((occ) => {
       const blockDay = applyOffset(occ, offset);
       return { occLabel: formatShortDate(occ), blockLabel: formatShortDate(blockDay), sameDay: offset === 0 };
     });
-  }, [span, task, slot.key, offset]);
+  }, [block, task, slot.key, offset]);
 
-  if (!span) {
+  if (!block) {
     return (
       <div className="flex items-center justify-between rounded-lg border border-dashed border-zinc-200 bg-white px-4 py-3">
         <span className="text-sm text-zinc-500">{slot.label}</span>
@@ -1206,7 +1176,7 @@ function SlotSpanRow({
           className="flex items-center gap-1.5 rounded-md bg-zinc-100 px-3 py-1.5 text-xs font-medium text-zinc-600 hover:bg-indigo-50 hover:text-indigo-600 transition-colors"
         >
           <Plus className="h-3 w-3" />
-          Add block span
+          Add block
         </button>
       </div>
     );
@@ -1221,7 +1191,7 @@ function SlotSpanRow({
           type="button"
           onClick={onClear}
           className="rounded p-0.5 text-zinc-400 hover:text-red-500 transition-colors"
-          title="Remove span"
+          title="Remove block"
         >
           <X className="h-3.5 w-3.5" />
         </button>

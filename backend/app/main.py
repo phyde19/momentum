@@ -12,14 +12,14 @@ from app.auth import Actor, get_current_actor, get_request_id
 from app.config import get_settings
 from app.database import Base, engine, get_db
 from app.domain import (
-    block_has_driver_link,
+    schedule_has_driver_link,
     create_audit_event,
     ensure_driver_is_linkable,
     ensure_driver_is_not_descendant,
     ensure_driver_parent_is_valid,
     ensure_initiative_is_linkable,
-    get_block_driver_ids,
-    get_block_or_404,
+    get_schedule_driver_ids,
+    get_schedule_or_404,
     get_driver_or_404,
     get_initiative_driver_ids,
     get_initiative_or_404,
@@ -32,10 +32,10 @@ from app.domain import (
 )
 from app.models import (
     AuditEvent,
-    Block,
-    BlockDriverLink,
-    BlockReason,
-    BlockType,
+    Schedule,
+    ScheduleDriverLink,
+    ScheduleReason,
+    ScheduleType,
     Driver,
     DriverState,
     DriverType,
@@ -52,10 +52,10 @@ from app.models import (
 )
 from app.schemas import (
     AuditEventResponse,
-    BlockCreate,
-    BlockReasonResponse,
-    BlockResponse,
-    BlockUpdate,
+    ScheduleCreate,
+    ScheduleReasonResponse,
+    ScheduleResponse,
+    ScheduleUpdate,
     DriverCreate,
     DriverResponse,
     DriverTreeNode,
@@ -1336,30 +1336,30 @@ def delete_initiative_reason(
 # ── Block routes ──────────────────────────────────────────────────────────────
 
 
-def _block_response(db: Session, block: Block) -> BlockResponse:
-    return BlockResponse(
-        id=block.id,
-        title=block.title,
-        description=block.description,
-        block_type=block.block_type,
-        starts_at=block.starts_at,
-        ends_at=block.ends_at,
-        initiative_id=block.initiative_id,
-        task_id=block.task_id,
-        occurrence_date=block.occurrence_date,
-        spans_json=block.spans_json or [],
-        periodic_type=block.periodic_type,
-        periodic_spec=block.periodic_spec,
-        periodic_end_mode=block.periodic_end_mode,
-        periodic_end_at=block.periodic_end_at,
-        periodic_end_count=block.periodic_end_count,
-        driver_ids=get_block_driver_ids(db, block.id),
-        created_by=block.created_by,
-        updated_by=block.updated_by,
-        created_at=block.created_at,
-        updated_at=block.updated_at,
-        deleted_at=block.deleted_at,
-        version=block.version,
+def _schedule_response(db: Session, bg: Schedule) -> ScheduleResponse:
+    return ScheduleResponse(
+        id=bg.id,
+        title=bg.title,
+        description=bg.description,
+        schedule_type=bg.schedule_type,
+        starts_at=bg.starts_at,
+        ends_at=bg.ends_at,
+        initiative_id=bg.initiative_id,
+        task_id=bg.task_id,
+        occurrence_date=bg.occurrence_date,
+        blocks_json=bg.blocks_json or [],
+        periodic_type=bg.periodic_type,
+        periodic_spec=bg.periodic_spec,
+        periodic_end_mode=bg.periodic_end_mode,
+        periodic_end_at=bg.periodic_end_at,
+        periodic_end_count=bg.periodic_end_count,
+        driver_ids=get_schedule_driver_ids(db, bg.id),
+        created_by=bg.created_by,
+        updated_by=bg.updated_by,
+        created_at=bg.created_at,
+        updated_at=bg.updated_at,
+        deleted_at=bg.deleted_at,
+        version=bg.version,
     )
 
 
@@ -1371,8 +1371,8 @@ def _validate_block_times(starts_at: Any, ends_at: Any) -> None:
         )
 
 
-def _serialize_spans(spans_list: list) -> list[dict[str, Any]]:
-    """Convert span dicts/Pydantic models to JSON-safe dicts (datetime → ISO str)."""
+def _serialize_blocks(spans_list: list) -> list[dict[str, Any]]:
+    """Convert block dicts/Pydantic models to JSON-safe dicts (datetime → ISO str)."""
     result = []
     for s in spans_list:
         d = dict(s) if isinstance(s, dict) else s.model_dump()
@@ -1390,10 +1390,10 @@ def _parse_dt(v: Any) -> datetime:
     return datetime.fromisoformat(v)
 
 
-def _compute_span_bounds(
+def _compute_block_bounds(
     spans: list[dict[str, Any]],
 ) -> tuple[datetime, datetime]:
-    """Derive starts_at/ends_at from the min/max of span times."""
+    """Derive starts_at/ends_at from the min/max of block times."""
     if not spans:
         now = datetime.now(timezone.utc)
         return now, now
@@ -1402,8 +1402,8 @@ def _compute_span_bounds(
     return min(all_starts), max(all_ends)
 
 
-def _validate_block_type_fields(
-    block_type: BlockType,
+def _validate_schedule_type_fields(
+    schedule_type: ScheduleType,
     *,
     starts_at: Any = None,
     ends_at: Any = None,
@@ -1411,43 +1411,38 @@ def _validate_block_type_fields(
     periodic_type: Any = None,
     periodic_spec: Any = None,
 ) -> None:
-    if block_type == BlockType.one_time:
-        if not starts_at or not ends_at:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="starts_at and ends_at are required for one_time blocks.",
-            )
+    if schedule_type == ScheduleType.block_set:
         if task_id:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="task_id is not allowed for one_time blocks.",
+                detail="task_id is not allowed for block_set schedules.",
             )
         if periodic_type or periodic_spec:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Periodic fields are not allowed for one_time blocks.",
+                detail="Periodic fields are not allowed for block_set schedules.",
             )
-    elif block_type == BlockType.periodic:
+    elif schedule_type == ScheduleType.periodic:
         if not starts_at or not ends_at:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="starts_at and ends_at are required for periodic blocks.",
+                detail="starts_at and ends_at are required for periodic schedules.",
             )
         if task_id:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="task_id is not allowed for periodic blocks.",
+                detail="task_id is not allowed for periodic schedules.",
             )
-    elif block_type == BlockType.task:
+    elif schedule_type == ScheduleType.task:
         if not task_id:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="task_id is required for task blocks.",
+                detail="task_id is required for task schedules.",
             )
         if periodic_type or periodic_spec:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Periodic fields are not allowed for task blocks (periodicity comes from the linked task).",
+                detail="Periodic fields are not allowed for task schedules (periodicity comes from the linked task).",
             )
 
 
@@ -1467,8 +1462,8 @@ def _validate_block_periodic(
         )
 
 
-@app.get(f"{settings.api_prefix}/blocks", response_model=list[BlockResponse])
-def list_blocks(
+@app.get(f"{settings.api_prefix}/schedules", response_model=list[ScheduleResponse])
+def list_schedules(
     include_deleted: bool = False,
     initiative_id: str | None = None,
     task_id: str | None = None,
@@ -1480,50 +1475,50 @@ def list_blocks(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
     _: Actor = Depends(get_current_actor),
-) -> list[BlockResponse]:
-    stmt = select(Block).order_by(Block.starts_at.desc()).limit(limit).offset(offset)
+) -> list[ScheduleResponse]:
+    stmt = select(Schedule).order_by(Schedule.starts_at.desc()).limit(limit).offset(offset)
     if not include_deleted:
-        stmt = stmt.where(Block.deleted_at.is_(None))
+        stmt = stmt.where(Schedule.deleted_at.is_(None))
     if query:
         like_term = f"%{query}%"
-        stmt = stmt.where(or_(Block.title.ilike(like_term), Block.description.ilike(like_term)))
+        stmt = stmt.where(or_(Schedule.title.ilike(like_term), Schedule.description.ilike(like_term)))
     if initiative_id:
-        stmt = stmt.where(Block.initiative_id == initiative_id)
+        stmt = stmt.where(Schedule.initiative_id == initiative_id)
     if task_id:
-        stmt = stmt.where(Block.task_id == task_id)
+        stmt = stmt.where(Schedule.task_id == task_id)
     if starts_after:
-        stmt = stmt.where(Block.starts_at >= starts_after)
+        stmt = stmt.where(Schedule.starts_at >= starts_after)
     if starts_before:
-        stmt = stmt.where(Block.starts_at <= starts_before)
+        stmt = stmt.where(Schedule.starts_at <= starts_before)
     if driver_id:
-        stmt = stmt.join(BlockDriverLink, BlockDriverLink.block_id == Block.id).where(
-            BlockDriverLink.driver_id == driver_id
+        stmt = stmt.join(ScheduleDriverLink, ScheduleDriverLink.schedule_id == Schedule.id).where(
+            ScheduleDriverLink.driver_id == driver_id
         )
-    blocks = list(db.scalars(stmt))
-    return [_block_response(db, block) for block in blocks]
+    groups = list(db.scalars(stmt))
+    return [_schedule_response(db, bg) for bg in groups]
 
 
-@app.get(f"{settings.api_prefix}/blocks/{{block_id}}", response_model=BlockResponse)
-def get_block(
-    block_id: str,
+@app.get(f"{settings.api_prefix}/schedules/{{schedule_id}}", response_model=ScheduleResponse)
+def get_schedule(
+    schedule_id: str,
     db: Session = Depends(get_db),
     _: Actor = Depends(get_current_actor),
-) -> BlockResponse:
-    block = get_block_or_404(db, block_id)
-    return _block_response(db, block)
+) -> ScheduleResponse:
+    bg = get_schedule_or_404(db, schedule_id)
+    return _schedule_response(db, bg)
 
 
 @app.post(
-    f"{settings.api_prefix}/blocks",
-    response_model=BlockResponse,
+    f"{settings.api_prefix}/schedules",
+    response_model=ScheduleResponse,
     status_code=status.HTTP_201_CREATED,
 )
-def create_block(
-    payload: BlockCreate,
+def create_schedule(
+    payload: ScheduleCreate,
     db: Session = Depends(get_db),
     actor: Actor = Depends(get_current_actor),
     request_id: str = Depends(get_request_id),
-) -> BlockResponse:
+) -> ScheduleResponse:
     driver_ids = _dedupe_ids(payload.driver_ids)
 
     if payload.initiative_id:
@@ -1535,38 +1530,38 @@ def create_block(
         driver = get_driver_or_404(db, did)
         ensure_driver_is_linkable(driver)
 
-    block_type = payload.block_type
+    schedule_type = payload.schedule_type
     starts_at = payload.starts_at
     ends_at = payload.ends_at
-    spans_raw = _serialize_spans(payload.spans_json) if payload.spans_json else []
+    instances_raw = _serialize_blocks(payload.blocks_json) if payload.blocks_json else []
 
-    if block_type == BlockType.task and (not starts_at or not ends_at):
-        starts_at, ends_at = _compute_span_bounds(spans_raw)
+    if schedule_type in (ScheduleType.task, ScheduleType.block_set) and instances_raw:
+        starts_at, ends_at = _compute_block_bounds(instances_raw)
 
-    _validate_block_type_fields(
-        block_type,
+    _validate_schedule_type_fields(
+        schedule_type,
         starts_at=starts_at,
         ends_at=ends_at,
         task_id=payload.task_id,
         periodic_type=payload.periodic_type,
         periodic_spec=payload.periodic_spec,
     )
-    if block_type != BlockType.task:
+    if schedule_type not in (ScheduleType.task, ScheduleType.block_set):
         _validate_block_times(starts_at, ends_at)
     _validate_block_periodic(payload.periodic_type, payload.periodic_spec)
 
     periodic_spec_dict = payload.periodic_spec.model_dump() if payload.periodic_spec else None
 
-    block = Block(
+    bg = Schedule(
         title=payload.title,
         description=payload.description,
-        block_type=block_type,
+        schedule_type=schedule_type,
         starts_at=starts_at,
         ends_at=ends_at,
         initiative_id=payload.initiative_id,
         task_id=payload.task_id,
         occurrence_date=payload.occurrence_date,
-        spans_json=spans_raw,
+        blocks_json=instances_raw,
         periodic_type=payload.periodic_type,
         periodic_spec=periodic_spec_dict,
         periodic_end_mode=payload.periodic_end_mode,
@@ -1575,44 +1570,44 @@ def create_block(
         created_by=actor.actor_id,
         updated_by=actor.actor_id,
     )
-    db.add(block)
+    db.add(bg)
     db.flush()
 
     for did in driver_ids:
-        db.add(BlockDriverLink(block_id=block.id, driver_id=did))
+        db.add(ScheduleDriverLink(schedule_id=bg.id, driver_id=did))
 
     create_audit_event(
         db,
         actor_type=actor.actor_type,
         actor_id=actor.actor_id,
-        action="block.create",
-        entity_type="block",
-        entity_id=block.id,
+        action="schedule.create",
+        entity_type="schedule",
+        entity_id=bg.id,
         request_id=request_id,
         before_json=None,
-        after_json={"block": serialize_model(block), "driver_ids": driver_ids},
+        after_json={"schedule": serialize_model(bg), "driver_ids": driver_ids},
     )
     db.commit()
-    db.refresh(block)
-    return _block_response(db, block)
+    db.refresh(bg)
+    return _schedule_response(db, bg)
 
 
-@app.patch(f"{settings.api_prefix}/blocks/{{block_id}}", response_model=BlockResponse)
-def update_block(
-    block_id: str,
-    payload: BlockUpdate,
+@app.patch(f"{settings.api_prefix}/schedules/{{schedule_id}}", response_model=ScheduleResponse)
+def update_schedule(
+    schedule_id: str,
+    payload: ScheduleUpdate,
     db: Session = Depends(get_db),
     actor: Actor = Depends(get_current_actor),
     request_id: str = Depends(get_request_id),
-) -> BlockResponse:
-    block = get_block_or_404(db, block_id)
-    before = _block_response(db, block).model_dump(mode="json")
+) -> ScheduleResponse:
+    bg = get_schedule_or_404(db, schedule_id)
+    before = _schedule_response(db, bg).model_dump(mode="json")
     changes = payload.model_dump(exclude_unset=True)
     driver_ids = changes.pop("driver_ids", None)
 
-    effective_type = changes.get("block_type", block.block_type)
+    effective_type = changes.get("schedule_type", bg.schedule_type)
     if isinstance(effective_type, str):
-        effective_type = BlockType(effective_type)
+        effective_type = ScheduleType(effective_type)
 
     if "initiative_id" in changes and changes["initiative_id"]:
         initiative = get_initiative_or_404(db, changes["initiative_id"])
@@ -1624,22 +1619,20 @@ def update_block(
         v = changes["periodic_spec"]
         changes["periodic_spec"] = v if isinstance(v, dict) else v.model_dump()
 
-    if "spans_json" in changes and changes["spans_json"] is not None:
-        changes["spans_json"] = _serialize_spans(changes["spans_json"])
+    if "blocks_json" in changes and changes["blocks_json"] is not None:
+        changes["blocks_json"] = _serialize_blocks(changes["blocks_json"])
 
-    # Apply changes first so we can validate the resulting state
     for key, value in changes.items():
-        setattr(block, key, value)
+        setattr(bg, key, value)
 
-    # For task-type blocks, auto-sync bounds from spans
-    if effective_type == BlockType.task:
-        spans = block.spans_json or []
-        if spans:
-            block.starts_at, block.ends_at = _compute_span_bounds(spans)
+    if effective_type in (ScheduleType.task, ScheduleType.block_set):
+        blks = bg.blocks_json or []
+        if blks:
+            bg.starts_at, bg.ends_at = _compute_block_bounds(blks)
     else:
-        _validate_block_times(block.starts_at, block.ends_at)
+        _validate_block_times(bg.starts_at, bg.ends_at)
 
-    _validate_block_periodic(block.periodic_type, block.periodic_spec)
+    _validate_block_periodic(bg.periodic_type, bg.periodic_spec)
 
     if driver_ids is not None:
         target_driver_ids = _dedupe_ids(driver_ids)
@@ -1647,7 +1640,7 @@ def update_block(
             driver = get_driver_or_404(db, did)
             ensure_driver_is_linkable(driver)
         existing_links = list(
-            db.scalars(select(BlockDriverLink).where(BlockDriverLink.block_id == block.id))
+            db.scalars(select(ScheduleDriverLink).where(ScheduleDriverLink.schedule_id == bg.id))
         )
         existing_driver_ids = {link.driver_id for link in existing_links}
         target_driver_set = set(target_driver_ids)
@@ -1656,59 +1649,59 @@ def update_block(
                 db.delete(link)
         for did in target_driver_ids:
             if did not in existing_driver_ids:
-                db.add(BlockDriverLink(block_id=block.id, driver_id=did))
+                db.add(ScheduleDriverLink(schedule_id=bg.id, driver_id=did))
 
-    block.updated_by = actor.actor_id
-    block.version += 1
-    after = _block_response(db, block).model_dump(mode="json")
+    bg.updated_by = actor.actor_id
+    bg.version += 1
+    after = _schedule_response(db, bg).model_dump(mode="json")
 
     create_audit_event(
         db,
         actor_type=actor.actor_type,
         actor_id=actor.actor_id,
-        action="block.update",
-        entity_type="block",
-        entity_id=block.id,
+        action="schedule.update",
+        entity_type="schedule",
+        entity_id=bg.id,
         request_id=request_id,
         before_json=before,
         after_json=after,
     )
     db.commit()
-    db.refresh(block)
-    return _block_response(db, block)
+    db.refresh(bg)
+    return _schedule_response(db, bg)
 
 
-@app.delete(f"{settings.api_prefix}/blocks/{{block_id}}", response_model=BlockResponse)
-def archive_block(
-    block_id: str,
+@app.delete(f"{settings.api_prefix}/schedules/{{schedule_id}}", response_model=ScheduleResponse)
+def archive_schedule(
+    schedule_id: str,
     db: Session = Depends(get_db),
     actor: Actor = Depends(get_current_actor),
     request_id: str = Depends(get_request_id),
-) -> BlockResponse:
-    block = get_block_or_404(db, block_id)
-    before = serialize_model(block)
-    block.deleted_at = utcnow()
-    block.updated_by = actor.actor_id
-    block.version += 1
+) -> ScheduleResponse:
+    bg = get_schedule_or_404(db, schedule_id)
+    before = serialize_model(bg)
+    bg.deleted_at = utcnow()
+    bg.updated_by = actor.actor_id
+    bg.version += 1
     create_audit_event(
         db,
         actor_type=actor.actor_type,
         actor_id=actor.actor_id,
-        action="block.archive",
-        entity_type="block",
-        entity_id=block.id,
+        action="schedule.archive",
+        entity_type="schedule",
+        entity_id=bg.id,
         request_id=request_id,
         before_json=before,
-        after_json=serialize_model(block),
+        after_json=serialize_model(bg),
     )
     db.commit()
-    db.refresh(block)
-    return _block_response(db, block)
+    db.refresh(bg)
+    return _schedule_response(db, bg)
 
 
-@app.delete(f"{settings.api_prefix}/blocks/{{block_id}}/hard-delete", status_code=status.HTTP_200_OK)
-def hard_delete_block(
-    block_id: str,
+@app.delete(f"{settings.api_prefix}/schedules/{{schedule_id}}/hard-delete", status_code=status.HTTP_200_OK)
+def hard_delete_schedule(
+    schedule_id: str,
     confirm: bool = Query(default=False),
     db: Session = Depends(get_db),
     actor: Actor = Depends(get_current_actor),
@@ -1719,136 +1712,136 @@ def hard_delete_block(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Hard delete requires confirm=true.",
         )
-    block = get_block_or_404(db, block_id, include_deleted=True)
-    before = serialize_model(block)
+    bg = get_schedule_or_404(db, schedule_id, include_deleted=True)
+    before = serialize_model(bg)
     create_audit_event(
         db,
         actor_type=actor.actor_type,
         actor_id=actor.actor_id,
-        action="block.hard_delete",
-        entity_type="block",
-        entity_id=block.id,
+        action="schedule.hard_delete",
+        entity_type="schedule",
+        entity_id=bg.id,
         request_id=request_id,
         before_json=before,
         after_json={"deleted": True},
     )
-    db.delete(block)
+    db.delete(bg)
     db.commit()
     return {"status": "deleted"}
 
 
-@app.post(f"{settings.api_prefix}/blocks/{{block_id}}/links/drivers", response_model=BlockResponse)
-def link_block_drivers(
-    block_id: str,
+@app.post(f"{settings.api_prefix}/schedules/{{schedule_id}}/links/drivers", response_model=ScheduleResponse)
+def link_schedule_drivers(
+    schedule_id: str,
     payload: LinkDriversRequest,
     db: Session = Depends(get_db),
     actor: Actor = Depends(get_current_actor),
     request_id: str = Depends(get_request_id),
-) -> BlockResponse:
-    block = get_block_or_404(db, block_id)
-    before = _block_response(db, block).model_dump(mode="json")
+) -> ScheduleResponse:
+    bg = get_schedule_or_404(db, schedule_id)
+    before = _schedule_response(db, bg).model_dump(mode="json")
     driver_ids = _dedupe_ids(payload.driver_ids)
     for did in driver_ids:
         driver = get_driver_or_404(db, did)
         ensure_driver_is_linkable(driver)
-        if not block_has_driver_link(db, block.id, did):
-            db.add(BlockDriverLink(block_id=block.id, driver_id=did))
+        if not schedule_has_driver_link(db, bg.id, did):
+            db.add(ScheduleDriverLink(schedule_id=bg.id, driver_id=did))
 
-    block.updated_by = actor.actor_id
-    block.version += 1
-    after = _block_response(db, block).model_dump(mode="json")
+    bg.updated_by = actor.actor_id
+    bg.version += 1
+    after = _schedule_response(db, bg).model_dump(mode="json")
     create_audit_event(
         db,
         actor_type=actor.actor_type,
         actor_id=actor.actor_id,
-        action="block.link_drivers",
-        entity_type="block",
-        entity_id=block.id,
+        action="schedule.link_drivers",
+        entity_type="schedule",
+        entity_id=bg.id,
         request_id=request_id,
         before_json=before,
         after_json=after,
     )
     db.commit()
-    db.refresh(block)
-    return _block_response(db, block)
+    db.refresh(bg)
+    return _schedule_response(db, bg)
 
 
 @app.delete(
-    f"{settings.api_prefix}/blocks/{{block_id}}/links/drivers/{{driver_id}}",
-    response_model=BlockResponse,
+    f"{settings.api_prefix}/schedules/{{schedule_id}}/links/drivers/{{driver_id}}",
+    response_model=ScheduleResponse,
 )
-def unlink_block_driver(
-    block_id: str,
+def unlink_schedule_driver(
+    schedule_id: str,
     driver_id: str,
     db: Session = Depends(get_db),
     actor: Actor = Depends(get_current_actor),
     request_id: str = Depends(get_request_id),
-) -> BlockResponse:
-    block = get_block_or_404(db, block_id)
-    before = _block_response(db, block).model_dump(mode="json")
+) -> ScheduleResponse:
+    bg = get_schedule_or_404(db, schedule_id)
+    before = _schedule_response(db, bg).model_dump(mode="json")
     link = db.scalar(
-        select(BlockDriverLink).where(
-            and_(BlockDriverLink.block_id == block_id, BlockDriverLink.driver_id == driver_id)
+        select(ScheduleDriverLink).where(
+            and_(ScheduleDriverLink.schedule_id == schedule_id, ScheduleDriverLink.driver_id == driver_id)
         )
     )
     if not link:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Driver link not found.")
     db.delete(link)
-    block.updated_by = actor.actor_id
-    block.version += 1
-    after = _block_response(db, block).model_dump(mode="json")
+    bg.updated_by = actor.actor_id
+    bg.version += 1
+    after = _schedule_response(db, bg).model_dump(mode="json")
     create_audit_event(
         db,
         actor_type=actor.actor_type,
         actor_id=actor.actor_id,
-        action="block.unlink_driver",
-        entity_type="block",
-        entity_id=block.id,
+        action="schedule.unlink_driver",
+        entity_type="schedule",
+        entity_id=bg.id,
         request_id=request_id,
         before_json=before,
         after_json=after,
     )
     db.commit()
-    db.refresh(block)
-    return _block_response(db, block)
+    db.refresh(bg)
+    return _schedule_response(db, bg)
 
 
 @app.get(
-    f"{settings.api_prefix}/blocks/{{block_id}}/reasons",
-    response_model=list[BlockReasonResponse],
+    f"{settings.api_prefix}/schedules/{{schedule_id}}/reasons",
+    response_model=list[ScheduleReasonResponse],
 )
-def list_block_reasons(
-    block_id: str,
+def list_schedule_reasons(
+    schedule_id: str,
     include_deleted: bool = False,
     db: Session = Depends(get_db),
     _actor: Actor = Depends(get_current_actor),
-) -> list[BlockReason]:
-    get_block_or_404(db, block_id, include_deleted=True)
+) -> list[ScheduleReason]:
+    get_schedule_or_404(db, schedule_id, include_deleted=True)
     stmt = (
-        select(BlockReason)
-        .where(BlockReason.block_id == block_id)
-        .order_by(BlockReason.created_at.desc())
+        select(ScheduleReason)
+        .where(ScheduleReason.schedule_id == schedule_id)
+        .order_by(ScheduleReason.created_at.desc())
     )
     if not include_deleted:
-        stmt = stmt.where(BlockReason.deleted_at.is_(None))
+        stmt = stmt.where(ScheduleReason.deleted_at.is_(None))
     return list(db.scalars(stmt))
 
 
 @app.post(
-    f"{settings.api_prefix}/blocks/{{block_id}}/reasons",
-    response_model=BlockReasonResponse,
+    f"{settings.api_prefix}/schedules/{{schedule_id}}/reasons",
+    response_model=ScheduleReasonResponse,
     status_code=status.HTTP_201_CREATED,
 )
-def add_block_reason(
-    block_id: str,
+def add_schedule_reason(
+    schedule_id: str,
     payload: ReasonCreate,
     db: Session = Depends(get_db),
     actor: Actor = Depends(get_current_actor),
     request_id: str = Depends(get_request_id),
-) -> BlockReason:
-    get_block_or_404(db, block_id, include_deleted=True)
-    reason = BlockReason(
-        block_id=block_id,
+) -> ScheduleReason:
+    get_schedule_or_404(db, schedule_id, include_deleted=True)
+    reason = ScheduleReason(
+        schedule_id=schedule_id,
         reason_text=payload.reason_text,
         author_type=actor.actor_type,
         author_id=actor.actor_id,
@@ -1859,13 +1852,13 @@ def add_block_reason(
         db,
         actor_type=actor.actor_type,
         actor_id=actor.actor_id,
-        action="block_reason.create",
-        entity_type="block_reason",
+        action="schedule_reason.create",
+        entity_type="schedule_reason",
         entity_id=reason.id,
         request_id=request_id,
         before_json=None,
         after_json=serialize_model(reason),
-        metadata_json={"block_id": block_id},
+        metadata_json={"schedule_id": schedule_id},
     )
     db.commit()
     db.refresh(reason)
@@ -1873,61 +1866,61 @@ def add_block_reason(
 
 
 @app.patch(
-    f"{settings.api_prefix}/blocks/reasons/{{reason_id}}",
-    response_model=BlockReasonResponse,
+    f"{settings.api_prefix}/schedules/reasons/{{reason_id}}",
+    response_model=ScheduleReasonResponse,
 )
-def update_block_reason(
+def update_schedule_reason(
     reason_id: str,
     payload: ReasonUpdate,
     db: Session = Depends(get_db),
     actor: Actor = Depends(get_current_actor),
     request_id: str = Depends(get_request_id),
-) -> BlockReason:
-    reason = db.scalar(select(BlockReason).where(BlockReason.id == reason_id))
+) -> ScheduleReason:
+    reason = db.scalar(select(ScheduleReason).where(ScheduleReason.id == reason_id))
     if not reason:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Block reason not found.")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Schedule reason not found.")
     before = serialize_model(reason)
     reason.reason_text = payload.reason_text
     create_audit_event(
         db,
         actor_type=actor.actor_type,
         actor_id=actor.actor_id,
-        action="block_reason.update",
-        entity_type="block_reason",
+        action="schedule_reason.update",
+        entity_type="schedule_reason",
         entity_id=reason.id,
         request_id=request_id,
         before_json=before,
         after_json=serialize_model(reason),
-        metadata_json={"block_id": reason.block_id},
+        metadata_json={"schedule_id": reason.schedule_id},
     )
     db.commit()
     db.refresh(reason)
     return reason
 
 
-@app.delete(f"{settings.api_prefix}/blocks/reasons/{{reason_id}}", status_code=status.HTTP_200_OK)
-def delete_block_reason(
+@app.delete(f"{settings.api_prefix}/schedules/reasons/{{reason_id}}", status_code=status.HTTP_200_OK)
+def delete_schedule_reason(
     reason_id: str,
     db: Session = Depends(get_db),
     actor: Actor = Depends(get_current_actor),
     request_id: str = Depends(get_request_id),
 ) -> dict[str, str]:
-    reason = db.scalar(select(BlockReason).where(BlockReason.id == reason_id))
+    reason = db.scalar(select(ScheduleReason).where(ScheduleReason.id == reason_id))
     if not reason:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Block reason not found.")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Schedule reason not found.")
     before = serialize_model(reason)
     reason.deleted_at = utcnow()
     create_audit_event(
         db,
         actor_type=actor.actor_type,
         actor_id=actor.actor_id,
-        action="block_reason.delete",
-        entity_type="block_reason",
+        action="schedule_reason.delete",
+        entity_type="schedule_reason",
         entity_id=reason.id,
         request_id=request_id,
         before_json=before,
         after_json=serialize_model(reason),
-        metadata_json={"block_id": reason.block_id},
+        metadata_json={"schedule_id": reason.schedule_id},
     )
     db.commit()
     return {"status": "deleted"}

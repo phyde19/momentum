@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { MessageSquare, Plus, Trash2, Pencil, Check, X } from "lucide-react";
-import type { BlockReason, InitiativeReason, TaskReason } from "../lib/types";
+import type { ScheduleReason, InitiativeReason, TaskReason } from "../lib/types";
 import { formatDate } from "../lib/utils";
 
-type Reason = TaskReason | InitiativeReason | BlockReason;
+type Reason = TaskReason | InitiativeReason | ScheduleReason;
 
 interface ReasonSectionProps {
   reasons: Reason[];

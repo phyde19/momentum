@@ -1,9 +1,9 @@
 import type {
-  Block,
-  BlockCreate,
-  BlockListParams,
-  BlockReason,
-  BlockUpdate,
+  Schedule,
+  ScheduleCreate,
+  ScheduleListParams,
+  ScheduleReason,
+  ScheduleUpdate,
   Driver,
   DriverCreate,
   DriverListParams,
@@ -182,49 +182,49 @@ export const api = {
   archiveDriver: (id: string) =>
     apiFetch<Driver>(`/drivers/${id}`, { method: "DELETE" }),
 
-  // Blocks
-  listBlocks: (params?: BlockListParams) =>
-    apiFetch<Block[]>(`/blocks${qs(params as Record<string, string | number | boolean | null | undefined>)}`),
+  // Schedules
+  listSchedules: (params?: ScheduleListParams) =>
+    apiFetch<Schedule[]>(`/schedules${qs(params as Record<string, string | number | boolean | null | undefined>)}`),
 
-  getBlock: (id: string) =>
-    apiFetch<Block>(`/blocks/${id}`),
+  getSchedule: (id: string) =>
+    apiFetch<Schedule>(`/schedules/${id}`),
 
-  createBlock: (data: BlockCreate) =>
-    apiFetch<Block>("/blocks", { method: "POST", body: JSON.stringify(data) }),
+  createSchedule: (data: ScheduleCreate) =>
+    apiFetch<Schedule>("/schedules", { method: "POST", body: JSON.stringify(data) }),
 
-  updateBlock: (id: string, data: BlockUpdate) =>
-    apiFetch<Block>(`/blocks/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  updateSchedule: (id: string, data: ScheduleUpdate) =>
+    apiFetch<Schedule>(`/schedules/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
 
-  archiveBlock: (id: string) =>
-    apiFetch<Block>(`/blocks/${id}`, { method: "DELETE" }),
+  archiveSchedule: (id: string) =>
+    apiFetch<Schedule>(`/schedules/${id}`, { method: "DELETE" }),
 
-  linkBlockDrivers: (blockId: string, data: LinkDriversRequest) =>
-    apiFetch<Block>(`/blocks/${blockId}/links/drivers`, {
+  linkScheduleDrivers: (scheduleId: string, data: LinkDriversRequest) =>
+    apiFetch<Schedule>(`/schedules/${scheduleId}/links/drivers`, {
       method: "POST",
       body: JSON.stringify(data),
     }),
 
-  unlinkBlockDriver: (blockId: string, driverId: string) =>
-    apiFetch<Block>(`/blocks/${blockId}/links/drivers/${driverId}`, { method: "DELETE" }),
+  unlinkScheduleDriver: (scheduleId: string, driverId: string) =>
+    apiFetch<Schedule>(`/schedules/${scheduleId}/links/drivers/${driverId}`, { method: "DELETE" }),
 
-  // Block reasons
-  listBlockReasons: (blockId: string) =>
-    apiFetch<BlockReason[]>(`/blocks/${blockId}/reasons`),
+  // Schedule reasons
+  listScheduleReasons: (scheduleId: string) =>
+    apiFetch<ScheduleReason[]>(`/schedules/${scheduleId}/reasons`),
 
-  addBlockReason: (blockId: string, data: ReasonCreate) =>
-    apiFetch<BlockReason>(`/blocks/${blockId}/reasons`, {
+  addScheduleReason: (scheduleId: string, data: ReasonCreate) =>
+    apiFetch<ScheduleReason>(`/schedules/${scheduleId}/reasons`, {
       method: "POST",
       body: JSON.stringify(data),
     }),
 
-  updateBlockReason: (reasonId: string, data: ReasonUpdate) =>
-    apiFetch<BlockReason>(`/blocks/reasons/${reasonId}`, {
+  updateScheduleReason: (reasonId: string, data: ReasonUpdate) =>
+    apiFetch<ScheduleReason>(`/schedules/reasons/${reasonId}`, {
       method: "PATCH",
       body: JSON.stringify(data),
     }),
 
-  deleteBlockReason: (reasonId: string) =>
-    apiFetch<{ status: string }>(`/blocks/reasons/${reasonId}`, { method: "DELETE" }),
+  deleteScheduleReason: (reasonId: string) =>
+    apiFetch<{ status: string }>(`/schedules/reasons/${reasonId}`, { method: "DELETE" }),
 };
 
 export { ApiError };

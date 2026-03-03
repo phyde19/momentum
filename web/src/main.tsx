@@ -9,8 +9,8 @@ import { DriverDetailPage } from "./routes/driver-detail";
 import { DriversPage } from "./routes/drivers";
 import { InitiativeDetailPage } from "./routes/initiative-detail";
 import { InitiativesPage } from "./routes/initiatives";
-import { BlocksPage } from "./routes/blocks";
-import { BlockDetailPage } from "./routes/block-detail";
+import { SchedulesPage } from "./routes/schedules";
+import { ScheduleDetailPage } from "./routes/schedule-detail";
 import { TasksPage } from "./routes/tasks";
 import { TaskDetailPage } from "./routes/task-detail";
 
@@ -33,9 +33,9 @@ const router = createBrowserRouter([
       { path: "tasks", element: <TasksPage /> },
       { path: "tasks/new", element: <TaskDetailPage /> },
       { path: "tasks/:taskId", element: <TaskDetailPage /> },
-      { path: "blocks", element: <BlocksPage /> },
-      { path: "blocks/new", element: <BlockDetailPage /> },
-      { path: "blocks/:blockId", element: <BlockDetailPage /> },
+      { path: "schedules", element: <SchedulesPage /> },
+      { path: "schedules/new", element: <ScheduleDetailPage /> },
+      { path: "schedules/:scheduleId", element: <ScheduleDetailPage /> },
       { path: "initiatives", element: <InitiativesPage /> },
       { path: "initiatives/new", element: <InitiativeDetailPage /> },
       { path: "initiatives/:initiativeId", element: <InitiativeDetailPage /> },

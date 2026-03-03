@@ -10,8 +10,8 @@ from sqlalchemy.orm import Session
 from app.models import (
     ActorType,
     AuditEvent,
-    Block,
-    BlockDriverLink,
+    Schedule,
+    ScheduleDriverLink,
     Driver,
     DriverState,
     Initiative,
@@ -169,25 +169,25 @@ def task_has_driver_link(db: Session, task_id: str, driver_id: str) -> bool:
     )
 
 
-def get_block_or_404(db: Session, block_id: str, *, include_deleted: bool = False) -> Block:
-    stmt: Select[tuple[Block]] = select(Block).where(Block.id == block_id)
+def get_schedule_or_404(db: Session, schedule_id: str, *, include_deleted: bool = False) -> Schedule:
+    stmt: Select[tuple[Schedule]] = select(Schedule).where(Schedule.id == schedule_id)
     if not include_deleted:
-        stmt = stmt.where(Block.deleted_at.is_(None))
-    block = db.scalar(stmt)
-    if not block:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Block not found.")
-    return block
+        stmt = stmt.where(Schedule.deleted_at.is_(None))
+    bg = db.scalar(stmt)
+    if not bg:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Schedule not found.")
+    return bg
 
 
-def get_block_driver_ids(db: Session, block_id: str) -> list[str]:
-    return list(db.scalars(select(BlockDriverLink.driver_id).where(BlockDriverLink.block_id == block_id)))
+def get_schedule_driver_ids(db: Session, schedule_id: str) -> list[str]:
+    return list(db.scalars(select(ScheduleDriverLink.driver_id).where(ScheduleDriverLink.schedule_id == schedule_id)))
 
 
-def block_has_driver_link(db: Session, block_id: str, driver_id: str) -> bool:
+def schedule_has_driver_link(db: Session, schedule_id: str, driver_id: str) -> bool:
     return (
         db.scalar(
-            select(BlockDriverLink).where(
-                and_(BlockDriverLink.block_id == block_id, BlockDriverLink.driver_id == driver_id)
+            select(ScheduleDriverLink).where(
+                and_(ScheduleDriverLink.schedule_id == schedule_id, ScheduleDriverLink.driver_id == driver_id)
             )
         )
         is not None

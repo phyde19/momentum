@@ -11,7 +11,7 @@ import { cn } from "../lib/utils";
 
 const navItems = [
   { to: "/tasks", label: "Tasks", icon: CheckSquare },
-  { to: "/blocks", label: "Blocks", icon: CalendarClock },
+  { to: "/schedules", label: "Schedule", icon: CalendarClock },
   { to: "/initiatives", label: "Initiatives", icon: Target },
   { to: "/drivers", label: "Drivers", icon: Layers3 },
 ];
@@ -73,16 +73,16 @@ export function Sidebar() {
           New Task
         </Link>
         <Link
-          to="/blocks/new"
+          to="/schedules/new"
           className={cn(
             "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors duration-150",
-            location.pathname === "/blocks/new"
+            location.pathname === "/schedules/new"
               ? "bg-zinc-800 text-white"
               : "text-zinc-400 hover:bg-zinc-800/60 hover:text-zinc-100",
           )}
         >
           <Plus className="h-[18px] w-[18px]" />
-          New Block
+          New Schedule
         </Link>
         <Link
           to="/initiatives/new"

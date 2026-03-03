@@ -70,8 +70,8 @@ class PeriodicEndMode(str, enum.Enum):
     after_count = "after_count"
 
 
-class BlockType(str, enum.Enum):
-    one_time = "one_time"
+class ScheduleType(str, enum.Enum):
+    block_set = "block_set"
     periodic = "periodic"
     task = "task"
 
@@ -90,7 +90,7 @@ TASK_PRIORITY_ENUM = Enum(TaskPriority, name="task_priority")
 TIMING_MODE_ENUM = Enum(TimingMode, name="timing_mode")
 PERIODIC_TYPE_ENUM = Enum(PeriodicType, name="periodic_type")
 PERIODIC_END_MODE_ENUM = Enum(PeriodicEndMode, name="periodic_end_mode")
-BLOCK_TYPE_ENUM = Enum(BlockType, name="block_type")
+BLOCK_GROUP_TYPE_ENUM = Enum(ScheduleType, name="schedule_type")
 ACTOR_TYPE_ENUM = Enum(ActorType, name="actor_type")
 
 
@@ -137,8 +137,8 @@ class Driver(Base):
         back_populates="driver",
         cascade="all, delete-orphan",
     )
-    block_links: Mapped[list[BlockDriverLink]] = relationship(
-        "BlockDriverLink",
+    schedule_links: Mapped[list[ScheduleDriverLink]] = relationship(
+        "ScheduleDriverLink",
         back_populates="driver",
         cascade="all, delete-orphan",
     )
@@ -173,7 +173,7 @@ class Initiative(Base):
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
 
     tasks: Mapped[list[Task]] = relationship("Task", back_populates="initiative")
-    blocks: Mapped[list[Block]] = relationship("Block", back_populates="initiative")
+    schedules: Mapped[list[Schedule]] = relationship("Schedule", back_populates="initiative")
     driver_links: Mapped[list[InitiativeDriverLink]] = relationship(
         "InitiativeDriverLink",
         back_populates="initiative",
@@ -233,7 +233,7 @@ class Task(Base):
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
 
     initiative: Mapped[Initiative | None] = relationship("Initiative", back_populates="tasks")
-    blocks: Mapped[list[Block]] = relationship("Block", back_populates="task", foreign_keys="Block.task_id")
+    schedules: Mapped[list[Schedule]] = relationship("Schedule", back_populates="task", foreign_keys="Schedule.task_id")
     driver_links: Mapped[list[TaskDriverLink]] = relationship(
         "TaskDriverLink",
         back_populates="task",
@@ -334,13 +334,13 @@ class InitiativeReason(Base):
     initiative: Mapped[Initiative] = relationship("Initiative", back_populates="reasons")
 
 
-class Block(Base):
-    __tablename__ = "blocks"
+class Schedule(Base):
+    __tablename__ = "schedules"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    block_type: Mapped[BlockType] = mapped_column(BLOCK_TYPE_ENUM, nullable=False, default=BlockType.one_time)
+    schedule_type: Mapped[ScheduleType] = mapped_column(BLOCK_GROUP_TYPE_ENUM, nullable=False, default=ScheduleType.block_set)
     starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     initiative_id: Mapped[str | None] = mapped_column(
@@ -354,7 +354,7 @@ class Block(Base):
         nullable=True,
     )
     occurrence_date: Mapped[date | None] = mapped_column(Date, nullable=True)
-    spans_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    blocks_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     periodic_type: Mapped[PeriodicType | None] = mapped_column(PERIODIC_TYPE_ENUM, nullable=True)
     periodic_spec: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     periodic_end_mode: Mapped[PeriodicEndMode | None] = mapped_column(
@@ -374,26 +374,26 @@ class Block(Base):
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
 
-    initiative: Mapped[Initiative | None] = relationship("Initiative", back_populates="blocks")
-    task: Mapped[Task | None] = relationship("Task", back_populates="blocks", foreign_keys=[task_id])
-    driver_links: Mapped[list[BlockDriverLink]] = relationship(
-        "BlockDriverLink",
-        back_populates="block",
+    initiative: Mapped[Initiative | None] = relationship("Initiative", back_populates="schedules")
+    task: Mapped[Task | None] = relationship("Task", back_populates="schedules", foreign_keys=[task_id])
+    driver_links: Mapped[list[ScheduleDriverLink]] = relationship(
+        "ScheduleDriverLink",
+        back_populates="schedule",
         cascade="all, delete-orphan",
     )
-    reasons: Mapped[list[BlockReason]] = relationship(
-        "BlockReason",
-        back_populates="block",
+    reasons: Mapped[list[ScheduleReason]] = relationship(
+        "ScheduleReason",
+        back_populates="schedule",
         cascade="all, delete-orphan",
     )
 
 
-class BlockDriverLink(Base):
-    __tablename__ = "block_driver_links"
+class ScheduleDriverLink(Base):
+    __tablename__ = "schedule_driver_links"
 
-    block_id: Mapped[str] = mapped_column(
+    schedule_id: Mapped[str] = mapped_column(
         String(36),
-        ForeignKey("blocks.id", ondelete="CASCADE"),
+        ForeignKey("schedules.id", ondelete="CASCADE"),
         primary_key=True,
     )
     driver_id: Mapped[str] = mapped_column(
@@ -403,15 +403,15 @@ class BlockDriverLink(Base):
     )
     linked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
 
-    block: Mapped[Block] = relationship("Block", back_populates="driver_links")
-    driver: Mapped[Driver] = relationship("Driver", back_populates="block_links")
+    schedule: Mapped[Schedule] = relationship("Schedule", back_populates="driver_links")
+    driver: Mapped[Driver] = relationship("Driver", back_populates="schedule_links")
 
 
-class BlockReason(Base):
-    __tablename__ = "block_reasons"
+class ScheduleReason(Base):
+    __tablename__ = "schedule_reasons"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    block_id: Mapped[str] = mapped_column(String(36), ForeignKey("blocks.id", ondelete="CASCADE"), nullable=False)
+    schedule_id: Mapped[str] = mapped_column(String(36), ForeignKey("schedules.id", ondelete="CASCADE"), nullable=False)
     reason_text: Mapped[str] = mapped_column(Text, nullable=False)
     author_type: Mapped[ActorType] = mapped_column(ACTOR_TYPE_ENUM, nullable=False)
     author_id: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -424,7 +424,7 @@ class BlockReason(Base):
     )
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    block: Mapped[Block] = relationship("Block", back_populates="reasons")
+    schedule: Mapped[Schedule] = relationship("Schedule", back_populates="reasons")
 
 
 class AuditEvent(Base):

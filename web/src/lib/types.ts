@@ -8,10 +8,10 @@ export type TaskPriority = "low" | "medium" | "high" | "critical";
 export type TimingMode = "none" | "indefinite" | "deadline" | "flexible" | "periodic";
 export type PeriodicType = "weekly" | "monthly" | "yearly" | "interval";
 export type PeriodicEndMode = "never" | "until_date" | "after_count";
-export type BlockType = "one_time" | "periodic" | "task";
+export type ScheduleType = "block_set" | "periodic" | "task";
 export type ActorType = "human" | "agent" | "system";
 
-export interface BlockSpan {
+export interface Block {
   starts_at: string;
   ends_at: string;
   slot_key?: string | null;
@@ -116,17 +116,17 @@ export interface InitiativeReason {
   deleted_at: string | null;
 }
 
-export interface Block {
+export interface Schedule {
   id: string;
   title: string;
   description: string | null;
-  block_type: BlockType;
+  schedule_type: ScheduleType;
   starts_at: string;
   ends_at: string;
   initiative_id: string | null;
   task_id: string | null;
   occurrence_date: string | null;
-  spans_json: BlockSpan[];
+  blocks_json: Block[];
   periodic_type: PeriodicType | null;
   periodic_spec: PeriodicSpec | null;
   periodic_end_mode: PeriodicEndMode | null;
@@ -141,9 +141,9 @@ export interface Block {
   version: number;
 }
 
-export interface BlockReason {
+export interface ScheduleReason {
   id: string;
-  block_id: string;
+  schedule_id: string;
   reason_text: string;
   author_type: ActorType;
   author_id: string;
@@ -260,16 +260,16 @@ export interface InitiativeListParams {
   offset?: number;
 }
 
-export interface BlockCreate {
+export interface ScheduleCreate {
   title: string;
   description?: string | null;
-  block_type: BlockType;
+  schedule_type: ScheduleType;
   starts_at?: string;
   ends_at?: string;
   initiative_id?: string | null;
   task_id?: string | null;
   occurrence_date?: string | null;
-  spans_json?: BlockSpan[];
+  blocks_json?: Block[];
   periodic_type?: PeriodicType | null;
   periodic_spec?: PeriodicSpec | null;
   periodic_end_mode?: PeriodicEndMode | null;
@@ -278,16 +278,16 @@ export interface BlockCreate {
   driver_ids?: string[];
 }
 
-export interface BlockUpdate {
+export interface ScheduleUpdate {
   title?: string;
   description?: string | null;
-  block_type?: BlockType;
+  schedule_type?: ScheduleType;
   starts_at?: string;
   ends_at?: string;
   initiative_id?: string | null;
   task_id?: string | null;
   occurrence_date?: string | null;
-  spans_json?: BlockSpan[];
+  blocks_json?: Block[];
   periodic_type?: PeriodicType | null;
   periodic_spec?: PeriodicSpec | null;
   periodic_end_mode?: PeriodicEndMode | null;
@@ -303,7 +303,7 @@ export interface DriverListParams {
   parent_driver_id?: string | null;
 }
 
-export interface BlockListParams {
+export interface ScheduleListParams {
   include_deleted?: boolean;
   initiative_id?: string;
   task_id?: string;

@@ -1,9 +1,9 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "./api";
 import type {
-  BlockCreate,
-  BlockListParams,
-  BlockUpdate,
+  ScheduleCreate,
+  ScheduleListParams,
+  ScheduleUpdate,
   DriverCreate,
   DriverListParams,
   DriverUpdate,
@@ -30,9 +30,9 @@ export const queryKeys = {
   drivers: (params?: DriverListParams) => ["drivers", params ?? {}] as const,
   driver: (id: string) => ["drivers", id] as const,
   driversTree: () => ["drivers", "tree"] as const,
-  blocks: (params?: BlockListParams) => ["blocks", params ?? {}] as const,
-  block: (id: string) => ["blocks", id] as const,
-  blockReasons: (blockId: string) => ["blocks", blockId, "reasons"] as const,
+  schedules: (params?: ScheduleListParams) => ["schedules", params ?? {}] as const,
+  schedule: (id: string) => ["schedules", id] as const,
+  scheduleReasons: (scheduleId: string) => ["schedules", scheduleId, "reasons"] as const,
 };
 
 // ── Task hooks ──────────────────────────────────────────────────────────────
@@ -330,122 +330,122 @@ export function useArchiveDriver() {
   });
 }
 
-// ── Block hooks ─────────────────────────────────────────────────────────────
+// ── Schedule hooks ───────────────────────────────────────────────────────
 
-export function useBlocks(params?: BlockListParams) {
+export function useSchedules(params?: ScheduleListParams) {
   return useQuery({
-    queryKey: queryKeys.blocks(params),
-    queryFn: () => api.listBlocks(params),
+    queryKey: queryKeys.schedules(params),
+    queryFn: () => api.listSchedules(params),
   });
 }
 
-export function useBlock(id: string | undefined) {
+export function useSchedule(id: string | undefined) {
   return useQuery({
-    queryKey: queryKeys.block(id!),
-    queryFn: () => api.getBlock(id!),
+    queryKey: queryKeys.schedule(id!),
+    queryFn: () => api.getSchedule(id!),
     enabled: !!id,
   });
 }
 
-export function useCreateBlock() {
+export function useCreateSchedule() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (data: BlockCreate) => api.createBlock(data),
+    mutationFn: (data: ScheduleCreate) => api.createSchedule(data),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["blocks"] });
+      qc.invalidateQueries({ queryKey: ["schedules"] });
     },
   });
 }
 
-export function useUpdateBlock() {
+export function useUpdateSchedule() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, data }: { id: string; data: BlockUpdate }) => api.updateBlock(id, data),
+    mutationFn: ({ id, data }: { id: string; data: ScheduleUpdate }) => api.updateSchedule(id, data),
     onSuccess: (_result, vars) => {
-      qc.invalidateQueries({ queryKey: ["blocks"] });
-      qc.invalidateQueries({ queryKey: queryKeys.block(vars.id) });
+      qc.invalidateQueries({ queryKey: ["schedules"] });
+      qc.invalidateQueries({ queryKey: queryKeys.schedule(vars.id) });
     },
   });
 }
 
-export function useArchiveBlock() {
+export function useArchiveSchedule() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => api.archiveBlock(id),
+    mutationFn: (id: string) => api.archiveSchedule(id),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["blocks"] });
+      qc.invalidateQueries({ queryKey: ["schedules"] });
     },
   });
 }
 
-export function useLinkBlockDrivers() {
+export function useLinkScheduleDrivers() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ blockId, data }: { blockId: string; data: LinkDriversRequest }) =>
-      api.linkBlockDrivers(blockId, data),
+    mutationFn: ({ scheduleId, data }: { scheduleId: string; data: LinkDriversRequest }) =>
+      api.linkScheduleDrivers(scheduleId, data),
     onSuccess: (_result, vars) => {
-      qc.invalidateQueries({ queryKey: queryKeys.block(vars.blockId) });
+      qc.invalidateQueries({ queryKey: queryKeys.schedule(vars.scheduleId) });
     },
   });
 }
 
-export function useUnlinkBlockDriver() {
+export function useUnlinkScheduleDriver() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ blockId, driverId }: { blockId: string; driverId: string }) =>
-      api.unlinkBlockDriver(blockId, driverId),
+    mutationFn: ({ scheduleId, driverId }: { scheduleId: string; driverId: string }) =>
+      api.unlinkScheduleDriver(scheduleId, driverId),
     onSuccess: (_result, vars) => {
-      qc.invalidateQueries({ queryKey: queryKeys.block(vars.blockId) });
+      qc.invalidateQueries({ queryKey: queryKeys.schedule(vars.scheduleId) });
     },
   });
 }
 
-// ── Block reason hooks ──────────────────────────────────────────────────────
+// ── Schedule reason hooks ────────────────────────────────────────────────
 
-export function useBlockReasons(blockId: string | undefined) {
+export function useScheduleReasons(scheduleId: string | undefined) {
   return useQuery({
-    queryKey: queryKeys.blockReasons(blockId!),
-    queryFn: () => api.listBlockReasons(blockId!),
-    enabled: !!blockId,
+    queryKey: queryKeys.scheduleReasons(scheduleId!),
+    queryFn: () => api.listScheduleReasons(scheduleId!),
+    enabled: !!scheduleId,
   });
 }
 
-export function useAddBlockReason() {
+export function useAddScheduleReason() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ blockId, data }: { blockId: string; data: ReasonCreate }) =>
-      api.addBlockReason(blockId, data),
+    mutationFn: ({ scheduleId, data }: { scheduleId: string; data: ReasonCreate }) =>
+      api.addScheduleReason(scheduleId, data),
     onSuccess: (_result, vars) => {
-      qc.invalidateQueries({ queryKey: queryKeys.blockReasons(vars.blockId) });
+      qc.invalidateQueries({ queryKey: queryKeys.scheduleReasons(vars.scheduleId) });
     },
   });
 }
 
-export function useUpdateBlockReason() {
+export function useUpdateScheduleReason() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({
       reasonId,
-      blockId,
+      scheduleId,
       data,
     }: {
       reasonId: string;
-      blockId: string;
+      scheduleId: string;
       data: ReasonUpdate;
-    }) => api.updateBlockReason(reasonId, data),
+    }) => api.updateScheduleReason(reasonId, data),
     onSuccess: (_result, vars) => {
-      qc.invalidateQueries({ queryKey: queryKeys.blockReasons(vars.blockId) });
+      qc.invalidateQueries({ queryKey: queryKeys.scheduleReasons(vars.scheduleId) });
     },
   });
 }
 
-export function useDeleteBlockReason() {
+export function useDeleteScheduleReason() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ reasonId, blockId }: { reasonId: string; blockId: string }) =>
-      api.deleteBlockReason(reasonId),
+    mutationFn: ({ reasonId, scheduleId }: { reasonId: string; scheduleId: string }) =>
+      api.deleteScheduleReason(reasonId),
     onSuccess: (_result, vars) => {
-      qc.invalidateQueries({ queryKey: queryKeys.blockReasons(vars.blockId) });
+      qc.invalidateQueries({ queryKey: queryKeys.scheduleReasons(vars.scheduleId) });
     },
   });
 }
