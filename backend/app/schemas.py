@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.models import (
     ActorType,
+    BlockType,
     DriverState,
     DriverType,
     InitiativeState,
@@ -192,12 +193,23 @@ class InitiativeReasonResponse(BaseModel):
     deleted_at: datetime | None
 
 
+class BlockSpan(BaseModel):
+    starts_at: datetime
+    ends_at: datetime
+    slot_key: str | None = None
+    offset_days: int | None = None
+
+
 class BlockBase(BaseModel):
     title: str = Field(min_length=1, max_length=255)
     description: str | None = None
+    block_type: BlockType = BlockType.one_time
     starts_at: datetime
     ends_at: datetime
     initiative_id: str | None = None
+    task_id: str | None = None
+    occurrence_date: date | None = None
+    spans_json: list[BlockSpan] = Field(default_factory=list)
     periodic_type: PeriodicType | None = None
     periodic_spec: PeriodicSpec | None = None
     periodic_end_mode: PeriodicEndMode | None = None
@@ -206,15 +218,21 @@ class BlockBase(BaseModel):
 
 
 class BlockCreate(BlockBase):
+    starts_at: datetime | None = None
+    ends_at: datetime | None = None
     driver_ids: list[str] = Field(default_factory=list)
 
 
 class BlockUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=255)
     description: str | None = None
+    block_type: BlockType | None = None
     starts_at: datetime | None = None
     ends_at: datetime | None = None
     initiative_id: str | None = None
+    task_id: str | None = None
+    occurrence_date: date | None = None
+    spans_json: list[BlockSpan] | None = None
     periodic_type: PeriodicType | None = None
     periodic_spec: PeriodicSpec | None = None
     periodic_end_mode: PeriodicEndMode | None = None
@@ -223,10 +241,24 @@ class BlockUpdate(BaseModel):
     driver_ids: list[str] | None = None
 
 
-class BlockResponse(BlockBase):
+class BlockResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
+    title: str
+    description: str | None
+    block_type: BlockType
+    starts_at: datetime
+    ends_at: datetime
+    initiative_id: str | None
+    task_id: str | None
+    occurrence_date: date | None
+    spans_json: list[BlockSpan]
+    periodic_type: PeriodicType | None
+    periodic_spec: PeriodicSpec | None
+    periodic_end_mode: PeriodicEndMode | None
+    periodic_end_at: datetime | None
+    periodic_end_count: int | None
     driver_ids: list[str]
     created_by: str
     updated_by: str

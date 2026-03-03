@@ -275,6 +275,136 @@ export function formatTime12hPublic(time24: string): string {
   return `${h12}:${String(m).padStart(2, "0")} ${suffix}`;
 }
 
+// ── Occurrence generation ───────────────────────────────────────────────────
+
+function jsWeekdayToOurs(jsDay: number): number {
+  return (jsDay + 6) % 7; // JS: 0=Sun..6=Sat → Ours: 0=Mon..6=Sun
+}
+
+function addDays(d: Date, n: number): Date {
+  const r = new Date(d);
+  r.setDate(r.getDate() + n);
+  return r;
+}
+
+function toYMD(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+export interface OccurrenceGeneratorInput {
+  periodic_type: PeriodicType;
+  periodic_spec: PeriodicSpec | null;
+  deadline_at?: string | null;
+  periodic_end_mode?: string | null;
+  periodic_end_at?: string | null;
+  periodic_end_count?: number | null;
+}
+
+export function generateOccurrences(
+  input: OccurrenceGeneratorInput,
+  maxCount = 12,
+): string[] {
+  const { periodic_type, periodic_spec } = input;
+  if (!periodic_spec) return [];
+
+  const startFrom = input.deadline_at ? new Date(input.deadline_at) : new Date();
+  startFrom.setHours(0, 0, 0, 0);
+
+  const endDate = input.periodic_end_mode === "until_date" && input.periodic_end_at
+    ? new Date(input.periodic_end_at)
+    : addDays(new Date(), 365);
+  endDate.setHours(23, 59, 59, 999);
+
+  const endCount = input.periodic_end_mode === "after_count" && input.periodic_end_count
+    ? input.periodic_end_count
+    : maxCount;
+
+  const limit = Math.min(maxCount, endCount);
+  const results: string[] = [];
+
+  if (periodic_type === "weekly") {
+    const days = Array.isArray(periodic_spec.days) ? (periodic_spec.days as number[]) : [];
+    if (days.length === 0) return [];
+    const cursor = new Date(startFrom);
+    for (let i = 0; i < 400 && results.length < limit; i++) {
+      if (cursor > endDate) break;
+      if (days.includes(jsWeekdayToOurs(cursor.getDay()))) {
+        results.push(toYMD(cursor));
+      }
+      cursor.setDate(cursor.getDate() + 1);
+    }
+  } else if (periodic_type === "monthly") {
+    const mode = periodic_spec.mode as string | undefined;
+    if (mode === "ordinal") {
+      const ordinal = (periodic_spec.ordinal as number) ?? 1;
+      const weekday = (periodic_spec.weekday as number) ?? 0;
+      const cursor = new Date(startFrom.getFullYear(), startFrom.getMonth(), 1);
+      for (let i = 0; i < 24 && results.length < limit; i++) {
+        const yr = cursor.getFullYear();
+        const mo = cursor.getMonth();
+        const jsWd = (weekday + 1) % 7; // ours→JS
+        let first = new Date(yr, mo, 1);
+        while (first.getDay() !== jsWd) first = addDays(first, 1);
+        let target: Date;
+        if (ordinal === -1) {
+          let last = first;
+          while (addDays(last, 7).getMonth() === mo) last = addDays(last, 7);
+          target = last;
+        } else {
+          target = addDays(first, (ordinal - 1) * 7);
+        }
+        if (target.getMonth() === mo && target >= startFrom && target <= endDate) {
+          results.push(toYMD(target));
+        }
+        cursor.setMonth(cursor.getMonth() + 1);
+      }
+    } else {
+      const days = Array.isArray(periodic_spec.days) ? (periodic_spec.days as number[]) : [];
+      if (days.length === 0) return [];
+      const cursor = new Date(startFrom.getFullYear(), startFrom.getMonth(), 1);
+      for (let i = 0; i < 24 && results.length < limit; i++) {
+        for (const day of days) {
+          const d = new Date(cursor.getFullYear(), cursor.getMonth(), day);
+          if (d.getMonth() === cursor.getMonth() && d >= startFrom && d <= endDate && results.length < limit) {
+            results.push(toYMD(d));
+          }
+        }
+        cursor.setMonth(cursor.getMonth() + 1);
+      }
+    }
+  } else if (periodic_type === "yearly") {
+    const entries = Array.isArray(periodic_spec.entries)
+      ? (periodic_spec.entries as { month: number; day: number }[])
+      : [];
+    if (entries.length === 0) return [];
+    let year = startFrom.getFullYear();
+    for (let i = 0; i < 20 && results.length < limit; i++) {
+      for (const entry of entries) {
+        const d = new Date(year, (entry.month ?? 1) - 1, entry.day ?? 1);
+        if (d >= startFrom && d <= endDate && results.length < limit) {
+          results.push(toYMD(d));
+        }
+      }
+      year++;
+    }
+  } else if (periodic_type === "interval") {
+    const everyN = (periodic_spec.every_n as number) ?? 1;
+    const unit = (periodic_spec.unit as string) ?? "days";
+    const step = unit === "weeks" ? everyN * 7 : everyN;
+    const cursor = new Date(startFrom);
+    for (let i = 0; i < 400 && results.length < limit; i++) {
+      if (cursor > endDate) break;
+      results.push(toYMD(cursor));
+      cursor.setDate(cursor.getDate() + step);
+    }
+  }
+
+  return results;
+}
+
 /** Capitalize first letter and replace underscores with spaces */
 export function humanize(s: string): string {
   return s.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase());

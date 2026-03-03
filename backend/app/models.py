@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import enum
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
-from sqlalchemy import JSON, DateTime, Enum, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, Date, DateTime, Enum, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -70,6 +70,12 @@ class PeriodicEndMode(str, enum.Enum):
     after_count = "after_count"
 
 
+class BlockType(str, enum.Enum):
+    one_time = "one_time"
+    periodic = "periodic"
+    task = "task"
+
+
 class ActorType(str, enum.Enum):
     human = "human"
     agent = "agent"
@@ -84,6 +90,7 @@ TASK_PRIORITY_ENUM = Enum(TaskPriority, name="task_priority")
 TIMING_MODE_ENUM = Enum(TimingMode, name="timing_mode")
 PERIODIC_TYPE_ENUM = Enum(PeriodicType, name="periodic_type")
 PERIODIC_END_MODE_ENUM = Enum(PeriodicEndMode, name="periodic_end_mode")
+BLOCK_TYPE_ENUM = Enum(BlockType, name="block_type")
 ACTOR_TYPE_ENUM = Enum(ActorType, name="actor_type")
 
 
@@ -226,6 +233,7 @@ class Task(Base):
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
 
     initiative: Mapped[Initiative | None] = relationship("Initiative", back_populates="tasks")
+    blocks: Mapped[list[Block]] = relationship("Block", back_populates="task", foreign_keys="Block.task_id")
     driver_links: Mapped[list[TaskDriverLink]] = relationship(
         "TaskDriverLink",
         back_populates="task",
@@ -332,6 +340,7 @@ class Block(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    block_type: Mapped[BlockType] = mapped_column(BLOCK_TYPE_ENUM, nullable=False, default=BlockType.one_time)
     starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     initiative_id: Mapped[str | None] = mapped_column(
@@ -339,6 +348,13 @@ class Block(Base):
         ForeignKey("initiatives.id", ondelete="SET NULL"),
         nullable=True,
     )
+    task_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("tasks.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    occurrence_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    spans_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     periodic_type: Mapped[PeriodicType | None] = mapped_column(PERIODIC_TYPE_ENUM, nullable=True)
     periodic_spec: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     periodic_end_mode: Mapped[PeriodicEndMode | None] = mapped_column(
@@ -359,6 +375,7 @@ class Block(Base):
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
 
     initiative: Mapped[Initiative | None] = relationship("Initiative", back_populates="blocks")
+    task: Mapped[Task | None] = relationship("Task", back_populates="blocks", foreign_keys=[task_id])
     driver_links: Mapped[list[BlockDriverLink]] = relationship(
         "BlockDriverLink",
         back_populates="block",

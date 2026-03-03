@@ -108,7 +108,7 @@ function SummaryIcon({ mode }: { mode: TimingMode }) {
 
 // ── Time Input (typeable) ────────────────────────────────────────────────────
 
-function TimeInput({
+export function TimeInput({
   value,
   onChange,
   disabled,

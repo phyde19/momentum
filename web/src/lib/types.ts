@@ -8,7 +8,15 @@ export type TaskPriority = "low" | "medium" | "high" | "critical";
 export type TimingMode = "none" | "indefinite" | "deadline" | "flexible" | "periodic";
 export type PeriodicType = "weekly" | "monthly" | "yearly" | "interval";
 export type PeriodicEndMode = "never" | "until_date" | "after_count";
+export type BlockType = "one_time" | "periodic" | "task";
 export type ActorType = "human" | "agent" | "system";
+
+export interface BlockSpan {
+  starts_at: string;
+  ends_at: string;
+  slot_key?: string | null;
+  offset_days?: number | null;
+}
 
 // ── Response types ──────────────────────────────────────────────────────────
 
@@ -112,9 +120,13 @@ export interface Block {
   id: string;
   title: string;
   description: string | null;
+  block_type: BlockType;
   starts_at: string;
   ends_at: string;
   initiative_id: string | null;
+  task_id: string | null;
+  occurrence_date: string | null;
+  spans_json: BlockSpan[];
   periodic_type: PeriodicType | null;
   periodic_spec: PeriodicSpec | null;
   periodic_end_mode: PeriodicEndMode | null;
@@ -251,9 +263,13 @@ export interface InitiativeListParams {
 export interface BlockCreate {
   title: string;
   description?: string | null;
-  starts_at: string;
-  ends_at: string;
+  block_type: BlockType;
+  starts_at?: string;
+  ends_at?: string;
   initiative_id?: string | null;
+  task_id?: string | null;
+  occurrence_date?: string | null;
+  spans_json?: BlockSpan[];
   periodic_type?: PeriodicType | null;
   periodic_spec?: PeriodicSpec | null;
   periodic_end_mode?: PeriodicEndMode | null;
@@ -265,9 +281,13 @@ export interface BlockCreate {
 export interface BlockUpdate {
   title?: string;
   description?: string | null;
+  block_type?: BlockType;
   starts_at?: string;
   ends_at?: string;
   initiative_id?: string | null;
+  task_id?: string | null;
+  occurrence_date?: string | null;
+  spans_json?: BlockSpan[];
   periodic_type?: PeriodicType | null;
   periodic_spec?: PeriodicSpec | null;
   periodic_end_mode?: PeriodicEndMode | null;
@@ -286,6 +306,7 @@ export interface DriverListParams {
 export interface BlockListParams {
   include_deleted?: boolean;
   initiative_id?: string;
+  task_id?: string;
   driver_id?: string;
   starts_after?: string;
   starts_before?: string;

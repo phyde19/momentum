@@ -7,10 +7,14 @@ import {
   Link2,
   Plus,
   X,
+  Calendar,
+  ExternalLink,
 } from "lucide-react";
 import {
   useArchiveTask,
   useAddTaskReason,
+  useBlocks,
+  useCreateBlock,
   useCreateTask,
   useDrivers,
   useInitiatives,
@@ -21,6 +25,7 @@ import {
   useUnlinkTaskDriver,
   useUpdateTask,
   useUpdateTaskReason,
+  useUpdateBlock,
 } from "../lib/hooks";
 import type {
   ChecklistItem,
@@ -336,6 +341,11 @@ function TaskDetailForm({ taskId, isNew }: { taskId?: string; isNew: boolean }) 
         {/* Timing */}
         <TimingEditor entityKind="task" value={timing} onChange={handleTimingChange} />
 
+        {/* Blocks */}
+        {!isNew && taskId && (
+          <TaskBlocksSection taskId={taskId} taskTitle={title} />
+        )}
+
         {/* Checklist */}
         <div className="border-t border-zinc-100 px-6 py-4">
           <h3 className="mb-3 text-sm font-medium text-zinc-700">Checklist</h3>
@@ -495,6 +505,105 @@ function TaskDetailForm({ taskId, isNew }: { taskId?: string; isNew: boolean }) 
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// ── Task Blocks Section ──────────────────────────────────────────────────────
+
+function TaskBlocksSection({
+  taskId,
+  taskTitle,
+}: {
+  taskId: string;
+  taskTitle: string;
+}) {
+  const navigate = useNavigate();
+  const { data: blocks = [] } = useBlocks({ task_id: taskId });
+  const createBlockMutation = useCreateBlock();
+  const updateBlockMutation = useUpdateBlock();
+
+  const linkedBlock = blocks.find((b) => b.block_type === "task" && !b.deleted_at);
+
+  async function handleCreateBlock() {
+    try {
+      const now = new Date().toISOString();
+      const created = await createBlockMutation.mutateAsync({
+        title: `Block: ${taskTitle}`,
+        block_type: "task",
+        task_id: taskId,
+        starts_at: now,
+        ends_at: now,
+        spans_json: [],
+      });
+      showToast("success", "Block created");
+      navigate(`/blocks/${created.id}`);
+    } catch (err) {
+      showToast("error", (err as Error).message || "Failed to create block");
+    }
+  }
+
+  async function handleUnlink() {
+    if (!linkedBlock) return;
+    if (!confirm("Unlink this block from the task?")) return;
+    try {
+      await updateBlockMutation.mutateAsync({
+        id: linkedBlock.id,
+        data: { task_id: null, block_type: "one_time" },
+      });
+      showToast("success", "Block unlinked");
+    } catch (err) {
+      showToast("error", (err as Error).message || "Failed to unlink block");
+    }
+  }
+
+  const spanCount = linkedBlock?.spans_json?.length ?? 0;
+
+  return (
+    <div className="border-t border-zinc-100 px-6 py-4">
+      <div className="mb-3 flex items-center gap-2">
+        <Calendar className="h-4 w-4 text-zinc-400" />
+        <h3 className="text-sm font-medium text-zinc-700">Block</h3>
+      </div>
+
+      {linkedBlock ? (
+        <div className="flex items-center gap-3 rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3">
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-zinc-700 truncate">
+              {linkedBlock.title}
+            </p>
+            <p className="text-xs text-zinc-400">
+              {spanCount} span{spanCount !== 1 ? "s" : ""} scheduled
+            </p>
+          </div>
+          <Link
+            to={`/blocks/${linkedBlock.id}`}
+            className="flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-700"
+          >
+            <ExternalLink className="h-3.5 w-3.5" />
+            Open
+          </Link>
+          <button
+            onClick={handleUnlink}
+            disabled={updateBlockMutation.isPending}
+            className="text-xs text-zinc-400 hover:text-red-500"
+          >
+            Unlink
+          </button>
+        </div>
+      ) : (
+        <div className="flex items-center gap-3">
+          <p className="text-xs italic text-zinc-400">No block linked</p>
+          <button
+            onClick={handleCreateBlock}
+            disabled={createBlockMutation.isPending}
+            className="flex items-center gap-1.5 rounded-md bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-600 hover:bg-indigo-100 transition-colors"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Create Block
+          </button>
+        </div>
+      )}
     </div>
   );
 }

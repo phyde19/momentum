@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Query, status
@@ -34,6 +35,7 @@ from app.models import (
     Block,
     BlockDriverLink,
     BlockReason,
+    BlockType,
     Driver,
     DriverState,
     DriverType,
@@ -1339,9 +1341,13 @@ def _block_response(db: Session, block: Block) -> BlockResponse:
         id=block.id,
         title=block.title,
         description=block.description,
+        block_type=block.block_type,
         starts_at=block.starts_at,
         ends_at=block.ends_at,
         initiative_id=block.initiative_id,
+        task_id=block.task_id,
+        occurrence_date=block.occurrence_date,
+        spans_json=block.spans_json or [],
         periodic_type=block.periodic_type,
         periodic_spec=block.periodic_spec,
         periodic_end_mode=block.periodic_end_mode,
@@ -1365,6 +1371,86 @@ def _validate_block_times(starts_at: Any, ends_at: Any) -> None:
         )
 
 
+def _serialize_spans(spans_list: list) -> list[dict[str, Any]]:
+    """Convert span dicts/Pydantic models to JSON-safe dicts (datetime → ISO str)."""
+    result = []
+    for s in spans_list:
+        d = dict(s) if isinstance(s, dict) else s.model_dump()
+        for key in ("starts_at", "ends_at"):
+            v = d.get(key)
+            if isinstance(v, datetime):
+                d[key] = v.isoformat()
+        result.append(d)
+    return result
+
+
+def _parse_dt(v: Any) -> datetime:
+    if isinstance(v, datetime):
+        return v
+    return datetime.fromisoformat(v)
+
+
+def _compute_span_bounds(
+    spans: list[dict[str, Any]],
+) -> tuple[datetime, datetime]:
+    """Derive starts_at/ends_at from the min/max of span times."""
+    if not spans:
+        now = datetime.now(timezone.utc)
+        return now, now
+    all_starts = [_parse_dt(s["starts_at"]) for s in spans]
+    all_ends = [_parse_dt(s["ends_at"]) for s in spans]
+    return min(all_starts), max(all_ends)
+
+
+def _validate_block_type_fields(
+    block_type: BlockType,
+    *,
+    starts_at: Any = None,
+    ends_at: Any = None,
+    task_id: Any = None,
+    periodic_type: Any = None,
+    periodic_spec: Any = None,
+) -> None:
+    if block_type == BlockType.one_time:
+        if not starts_at or not ends_at:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="starts_at and ends_at are required for one_time blocks.",
+            )
+        if task_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="task_id is not allowed for one_time blocks.",
+            )
+        if periodic_type or periodic_spec:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Periodic fields are not allowed for one_time blocks.",
+            )
+    elif block_type == BlockType.periodic:
+        if not starts_at or not ends_at:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="starts_at and ends_at are required for periodic blocks.",
+            )
+        if task_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="task_id is not allowed for periodic blocks.",
+            )
+    elif block_type == BlockType.task:
+        if not task_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="task_id is required for task blocks.",
+            )
+        if periodic_type or periodic_spec:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Periodic fields are not allowed for task blocks (periodicity comes from the linked task).",
+            )
+
+
 def _validate_block_periodic(
     periodic_type: Any = None,
     periodic_spec: Any = None,
@@ -1385,6 +1471,7 @@ def _validate_block_periodic(
 def list_blocks(
     include_deleted: bool = False,
     initiative_id: str | None = None,
+    task_id: str | None = None,
     driver_id: str | None = None,
     starts_after: str | None = None,
     starts_before: str | None = None,
@@ -1402,6 +1489,8 @@ def list_blocks(
         stmt = stmt.where(or_(Block.title.ilike(like_term), Block.description.ilike(like_term)))
     if initiative_id:
         stmt = stmt.where(Block.initiative_id == initiative_id)
+    if task_id:
+        stmt = stmt.where(Block.task_id == task_id)
     if starts_after:
         stmt = stmt.where(Block.starts_at >= starts_after)
     if starts_before:
@@ -1436,24 +1525,48 @@ def create_block(
     request_id: str = Depends(get_request_id),
 ) -> BlockResponse:
     driver_ids = _dedupe_ids(payload.driver_ids)
-    _validate_block_times(payload.starts_at, payload.ends_at)
-    _validate_block_periodic(payload.periodic_type, payload.periodic_spec)
 
     if payload.initiative_id:
         initiative = get_initiative_or_404(db, payload.initiative_id)
         ensure_initiative_is_linkable(initiative)
+    if payload.task_id:
+        get_task_or_404(db, payload.task_id)
     for did in driver_ids:
         driver = get_driver_or_404(db, did)
         ensure_driver_is_linkable(driver)
+
+    block_type = payload.block_type
+    starts_at = payload.starts_at
+    ends_at = payload.ends_at
+    spans_raw = _serialize_spans(payload.spans_json) if payload.spans_json else []
+
+    if block_type == BlockType.task and (not starts_at or not ends_at):
+        starts_at, ends_at = _compute_span_bounds(spans_raw)
+
+    _validate_block_type_fields(
+        block_type,
+        starts_at=starts_at,
+        ends_at=ends_at,
+        task_id=payload.task_id,
+        periodic_type=payload.periodic_type,
+        periodic_spec=payload.periodic_spec,
+    )
+    if block_type != BlockType.task:
+        _validate_block_times(starts_at, ends_at)
+    _validate_block_periodic(payload.periodic_type, payload.periodic_spec)
 
     periodic_spec_dict = payload.periodic_spec.model_dump() if payload.periodic_spec else None
 
     block = Block(
         title=payload.title,
         description=payload.description,
-        starts_at=payload.starts_at,
-        ends_at=payload.ends_at,
+        block_type=block_type,
+        starts_at=starts_at,
+        ends_at=ends_at,
         initiative_id=payload.initiative_id,
+        task_id=payload.task_id,
+        occurrence_date=payload.occurrence_date,
+        spans_json=spans_raw,
         periodic_type=payload.periodic_type,
         periodic_spec=periodic_spec_dict,
         periodic_end_mode=payload.periodic_end_mode,
@@ -1497,20 +1610,36 @@ def update_block(
     changes = payload.model_dump(exclude_unset=True)
     driver_ids = changes.pop("driver_ids", None)
 
-    starts_at = changes.get("starts_at", block.starts_at)
-    ends_at = changes.get("ends_at", block.ends_at)
-    _validate_block_times(starts_at, ends_at)
-    _validate_block_periodic(
-        changes.get("periodic_type", block.periodic_type),
-        changes.get("periodic_spec", block.periodic_spec),
-    )
+    effective_type = changes.get("block_type", block.block_type)
+    if isinstance(effective_type, str):
+        effective_type = BlockType(effective_type)
 
     if "initiative_id" in changes and changes["initiative_id"]:
         initiative = get_initiative_or_404(db, changes["initiative_id"])
         ensure_initiative_is_linkable(initiative)
+    if "task_id" in changes and changes["task_id"]:
+        get_task_or_404(db, changes["task_id"])
 
     if "periodic_spec" in changes and changes["periodic_spec"] is not None:
-        changes["periodic_spec"] = changes["periodic_spec"].model_dump()
+        v = changes["periodic_spec"]
+        changes["periodic_spec"] = v if isinstance(v, dict) else v.model_dump()
+
+    if "spans_json" in changes and changes["spans_json"] is not None:
+        changes["spans_json"] = _serialize_spans(changes["spans_json"])
+
+    # Apply changes first so we can validate the resulting state
+    for key, value in changes.items():
+        setattr(block, key, value)
+
+    # For task-type blocks, auto-sync bounds from spans
+    if effective_type == BlockType.task:
+        spans = block.spans_json or []
+        if spans:
+            block.starts_at, block.ends_at = _compute_span_bounds(spans)
+    else:
+        _validate_block_times(block.starts_at, block.ends_at)
+
+    _validate_block_periodic(block.periodic_type, block.periodic_spec)
 
     if driver_ids is not None:
         target_driver_ids = _dedupe_ids(driver_ids)
@@ -1529,8 +1658,6 @@ def update_block(
             if did not in existing_driver_ids:
                 db.add(BlockDriverLink(block_id=block.id, driver_id=did))
 
-    for key, value in changes.items():
-        setattr(block, key, value)
     block.updated_by = actor.actor_id
     block.version += 1
     after = _block_response(db, block).model_dump(mode="json")
