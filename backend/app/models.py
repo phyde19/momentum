@@ -49,11 +49,25 @@ class TaskPriority(str, enum.Enum):
     critical = "critical"
 
 
-class TaskRecurrence(str, enum.Enum):
-    daily = "daily"
+class TimingMode(str, enum.Enum):
+    none = "none"
+    indefinite = "indefinite"
+    deadline = "deadline"
+    flexible = "flexible"
+    periodic = "periodic"
+
+
+class PeriodicType(str, enum.Enum):
     weekly = "weekly"
     monthly = "monthly"
-    custom = "custom"
+    yearly = "yearly"
+    interval = "interval"
+
+
+class PeriodicEndMode(str, enum.Enum):
+    never = "never"
+    until_date = "until_date"
+    after_count = "after_count"
 
 
 class ActorType(str, enum.Enum):
@@ -67,7 +81,9 @@ DRIVER_TYPE_ENUM = Enum(DriverType, name="driver_type")
 DRIVER_STATE_ENUM = Enum(DriverState, name="driver_state")
 TASK_STATUS_ENUM = Enum(TaskStatus, name="task_status")
 TASK_PRIORITY_ENUM = Enum(TaskPriority, name="task_priority")
-TASK_RECURRENCE_ENUM = Enum(TaskRecurrence, name="task_recurrence")
+TIMING_MODE_ENUM = Enum(TimingMode, name="timing_mode")
+PERIODIC_TYPE_ENUM = Enum(PeriodicType, name="periodic_type")
+PERIODIC_END_MODE_ENUM = Enum(PeriodicEndMode, name="periodic_end_mode")
 ACTOR_TYPE_ENUM = Enum(ActorType, name="actor_type")
 
 
@@ -127,8 +143,11 @@ class Initiative(Base):
         nullable=False,
         default=InitiativeState.active,
     )
-    due_start_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    due_end_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    timing_mode: Mapped[TimingMode] = mapped_column(
+        TIMING_MODE_ENUM, nullable=False, default=TimingMode.none,
+    )
+    deadline_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    grace_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_by: Mapped[str] = mapped_column(String(255), nullable=False)
     updated_by: Mapped[str] = mapped_column(String(255), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
@@ -175,12 +194,18 @@ class Task(Base):
         ForeignKey("initiatives.id", ondelete="SET NULL"),
         nullable=True,
     )
-    due_start_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    due_end_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    recurrence: Mapped[TaskRecurrence | None] = mapped_column(TASK_RECURRENCE_ENUM, nullable=True)
-    recurrence_interval: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    recurrence_rule: Mapped[str | None] = mapped_column(Text, nullable=True)
-    recurrence_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    timing_mode: Mapped[TimingMode] = mapped_column(
+        TIMING_MODE_ENUM, nullable=False, default=TimingMode.none,
+    )
+    deadline_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    grace_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    periodic_type: Mapped[PeriodicType | None] = mapped_column(PERIODIC_TYPE_ENUM, nullable=True)
+    periodic_spec: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    periodic_end_mode: Mapped[PeriodicEndMode | None] = mapped_column(
+        PERIODIC_END_MODE_ENUM, nullable=True,
+    )
+    periodic_end_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    periodic_end_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     checklist_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     created_by: Mapped[str] = mapped_column(String(255), nullable=False)
     updated_by: Mapped[str] = mapped_column(String(255), nullable=False)

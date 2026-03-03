@@ -38,9 +38,9 @@ from app.models import (
     Task,
     TaskPriority,
     TaskDriverLink,
-    TaskRecurrence,
     TaskReason,
     TaskStatus,
+    TimingMode,
 )
 from app.schemas import (
     AuditEventResponse,
@@ -82,12 +82,14 @@ def _task_response(db: Session, task: Task) -> TaskResponse:
         status=task.status,
         priority=task.priority,
         initiative_id=task.initiative_id,
-        due_start_at=task.due_start_at,
-        due_end_at=task.due_end_at,
-        recurrence=task.recurrence,
-        recurrence_interval=task.recurrence_interval,
-        recurrence_rule=task.recurrence_rule,
-        recurrence_until=task.recurrence_until,
+        timing_mode=task.timing_mode,
+        deadline_at=task.deadline_at,
+        grace_days=task.grace_days,
+        periodic_type=task.periodic_type,
+        periodic_spec=task.periodic_spec,
+        periodic_end_mode=task.periodic_end_mode,
+        periodic_end_at=task.periodic_end_at,
+        periodic_end_count=task.periodic_end_count,
         checklist_json=task.checklist_json or [],
         driver_ids=get_task_driver_ids(db, task.id),
         created_by=task.created_by,
@@ -105,8 +107,9 @@ def _initiative_response(db: Session, initiative: Initiative) -> InitiativeRespo
         title=initiative.title,
         description=initiative.description,
         state=initiative.state,
-        due_start_at=initiative.due_start_at,
-        due_end_at=initiative.due_end_at,
+        timing_mode=initiative.timing_mode,
+        deadline_at=initiative.deadline_at,
+        grace_days=initiative.grace_days,
         driver_ids=get_initiative_driver_ids(db, initiative.id),
         created_by=initiative.created_by,
         updated_by=initiative.updated_by,
@@ -140,31 +143,48 @@ def _driver_tree_nodes(drivers: list[Driver]) -> list[DriverTreeNode]:
     return children_by_parent.get(None, [])
 
 
-def _validate_due_window(due_start_at: Any, due_end_at: Any) -> None:
-    if due_start_at and due_end_at and due_start_at > due_end_at:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="due_start_at cannot be later than due_end_at.",
-        )
-
-
-def _validate_recurrence(
-    recurrence: TaskRecurrence | None,
-    recurrence_interval: int | None,
-    recurrence_rule: str | None,
-    recurrence_until: Any,
+def _validate_timing(
+    timing_mode: TimingMode,
+    *,
+    deadline_at: Any = None,
+    grace_days: int | None = None,
+    periodic_type: Any = None,
+    periodic_spec: Any = None,
+    periodic_end_mode: Any = None,
+    periodic_end_at: Any = None,
+    periodic_end_count: int | None = None,
+    entity_kind: str = "task",
 ) -> None:
-    has_recurrence_fields = recurrence_interval is not None or recurrence_rule is not None or recurrence_until
-    if recurrence is None and has_recurrence_fields:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="recurrence must be set when recurrence_* fields are provided.",
-        )
-    if recurrence is not None and recurrence_interval is not None and recurrence_interval < 1:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="recurrence_interval must be >= 1.",
-        )
+    def _bad(detail: str) -> None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail)
+
+    if entity_kind == "task" and timing_mode == TimingMode.indefinite:
+        _bad("Tasks cannot use indefinite timing mode.")
+
+    if entity_kind == "initiative" and timing_mode == TimingMode.periodic:
+        _bad("Initiatives cannot use periodic timing mode.")
+
+    if timing_mode in (TimingMode.none, TimingMode.indefinite):
+        if deadline_at or grace_days or periodic_type or periodic_spec:
+            _bad(f"No timing fields allowed when timing_mode is '{timing_mode.value}'.")
+        return
+
+    if timing_mode in (TimingMode.deadline, TimingMode.flexible):
+        if not deadline_at:
+            _bad("deadline_at is required for deadline/flexible timing.")
+        if timing_mode == TimingMode.flexible:
+            if not grace_days or grace_days < 1:
+                _bad("grace_days (>= 1) is required for flexible timing.")
+        if periodic_type or periodic_spec:
+            _bad("Periodic fields not allowed for deadline/flexible timing.")
+        return
+
+    if timing_mode == TimingMode.periodic:
+        if not periodic_type:
+            _bad("periodic_type is required for periodic timing.")
+        if not periodic_spec:
+            _bad("periodic_spec is required for periodic timing.")
+        return
 
 
 def _dedupe_ids(values: list[str]) -> list[str]:
@@ -470,7 +490,12 @@ def create_initiative(
     request_id: str = Depends(get_request_id),
 ) -> InitiativeResponse:
     driver_ids = _dedupe_ids(payload.driver_ids)
-    _validate_due_window(payload.due_start_at, payload.due_end_at)
+    _validate_timing(
+        payload.timing_mode,
+        deadline_at=payload.deadline_at,
+        grace_days=payload.grace_days,
+        entity_kind="initiative",
+    )
     for driver_id in driver_ids:
         driver = get_driver_or_404(db, driver_id)
         ensure_driver_is_linkable(driver)
@@ -479,8 +504,9 @@ def create_initiative(
         title=payload.title,
         description=payload.description,
         state=payload.state,
-        due_start_at=payload.due_start_at,
-        due_end_at=payload.due_end_at,
+        timing_mode=payload.timing_mode,
+        deadline_at=payload.deadline_at,
+        grace_days=payload.grace_days,
         created_by=actor.actor_id,
         updated_by=actor.actor_id,
     )
@@ -518,9 +544,13 @@ def update_initiative(
     before = _initiative_response(db, initiative).model_dump(mode="json")
     changes = payload.model_dump(exclude_unset=True)
 
-    due_start_at = changes.get("due_start_at", initiative.due_start_at)
-    due_end_at = changes.get("due_end_at", initiative.due_end_at)
-    _validate_due_window(due_start_at, due_end_at)
+    timing_mode = changes.get("timing_mode", initiative.timing_mode)
+    _validate_timing(
+        timing_mode,
+        deadline_at=changes.get("deadline_at", initiative.deadline_at),
+        grace_days=changes.get("grace_days", initiative.grace_days),
+        entity_kind="initiative",
+    )
 
     driver_ids = changes.pop("driver_ids", None)
     if driver_ids is not None:
@@ -710,13 +740,19 @@ def create_task(
         driver = get_driver_or_404(db, driver_id)
         ensure_driver_is_linkable(driver)
 
-    _validate_due_window(payload.due_start_at, payload.due_end_at)
-    _validate_recurrence(
-        payload.recurrence,
-        payload.recurrence_interval,
-        payload.recurrence_rule,
-        payload.recurrence_until,
+    _validate_timing(
+        payload.timing_mode,
+        deadline_at=payload.deadline_at,
+        grace_days=payload.grace_days,
+        periodic_type=payload.periodic_type,
+        periodic_spec=payload.periodic_spec,
+        periodic_end_mode=payload.periodic_end_mode,
+        periodic_end_at=payload.periodic_end_at,
+        periodic_end_count=payload.periodic_end_count,
+        entity_kind="task",
     )
+
+    periodic_spec_dict = payload.periodic_spec.model_dump() if payload.periodic_spec else None
 
     task = Task(
         title=payload.title,
@@ -724,12 +760,14 @@ def create_task(
         status=payload.status,
         priority=payload.priority,
         initiative_id=payload.initiative_id,
-        due_start_at=payload.due_start_at,
-        due_end_at=payload.due_end_at,
-        recurrence=payload.recurrence,
-        recurrence_interval=payload.recurrence_interval,
-        recurrence_rule=payload.recurrence_rule,
-        recurrence_until=payload.recurrence_until,
+        timing_mode=payload.timing_mode,
+        deadline_at=payload.deadline_at,
+        grace_days=payload.grace_days,
+        periodic_type=payload.periodic_type,
+        periodic_spec=periodic_spec_dict,
+        periodic_end_mode=payload.periodic_end_mode,
+        periodic_end_at=payload.periodic_end_at,
+        periodic_end_count=payload.periodic_end_count,
         checklist_json=[item.model_dump() for item in payload.checklist_json],
         created_by=actor.actor_id,
         updated_by=actor.actor_id,
@@ -773,16 +811,21 @@ def update_task(
         initiative = get_initiative_or_404(db, changes["initiative_id"])
         ensure_initiative_is_linkable(initiative)
 
-    due_start_at = changes.get("due_start_at", task.due_start_at)
-    due_end_at = changes.get("due_end_at", task.due_end_at)
-    _validate_due_window(due_start_at, due_end_at)
-
-    _validate_recurrence(
-        changes.get("recurrence", task.recurrence),
-        changes.get("recurrence_interval", task.recurrence_interval),
-        changes.get("recurrence_rule", task.recurrence_rule),
-        changes.get("recurrence_until", task.recurrence_until),
+    timing_mode = changes.get("timing_mode", task.timing_mode)
+    _validate_timing(
+        timing_mode,
+        deadline_at=changes.get("deadline_at", task.deadline_at),
+        grace_days=changes.get("grace_days", task.grace_days),
+        periodic_type=changes.get("periodic_type", task.periodic_type),
+        periodic_spec=changes.get("periodic_spec", task.periodic_spec),
+        periodic_end_mode=changes.get("periodic_end_mode", task.periodic_end_mode),
+        periodic_end_at=changes.get("periodic_end_at", task.periodic_end_at),
+        periodic_end_count=changes.get("periodic_end_count", task.periodic_end_count),
+        entity_kind="task",
     )
+
+    if "periodic_spec" in changes and changes["periodic_spec"] is not None:
+        changes["periodic_spec"] = changes["periodic_spec"].model_dump()
 
     if "checklist_json" in changes and changes["checklist_json"] is not None:
         changes["checklist_json"] = [item.model_dump() for item in changes["checklist_json"]]

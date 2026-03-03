@@ -152,9 +152,9 @@ export function InitiativesPage() {
                 )}
               </div>
 
-              {(initiative.due_end_at || initiative.due_start_at) && (
+              {initiative.timing_mode !== "none" && initiative.timing_mode !== "indefinite" && initiative.deadline_at && (
                 <span className="hidden shrink-0 text-xs text-zinc-400 md:block">
-                  {formatDate(initiative.due_end_at ?? initiative.due_start_at)}
+                  {formatDate(initiative.deadline_at)}
                 </span>
               )}
 

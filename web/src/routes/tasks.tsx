@@ -192,10 +192,14 @@ export function TasksPage() {
                 <PriorityBadge priority={task.priority} />
               </div>
 
-              {/* Due date */}
-              {(task.due_end_at || task.due_start_at) && (
+              {/* Timing info */}
+              {task.timing_mode !== "none" && (
                 <span className="hidden shrink-0 text-xs text-zinc-400 md:block">
-                  {formatDate(task.due_end_at ?? task.due_start_at)}
+                  {task.timing_mode === "periodic"
+                    ? "Periodic"
+                    : task.deadline_at
+                      ? formatDate(task.deadline_at)
+                      : ""}
                 </span>
               )}
 

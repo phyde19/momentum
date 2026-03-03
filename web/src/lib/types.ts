@@ -5,7 +5,9 @@ export type DriverState = "active" | "archived";
 export type InitiativeState = "active" | "paused" | "abandoned" | "completed" | "archived";
 export type TaskStatus = "todo" | "in_progress" | "blocked" | "done" | "archived";
 export type TaskPriority = "low" | "medium" | "high" | "critical";
-export type TaskRecurrence = "daily" | "weekly" | "monthly" | "custom";
+export type TimingMode = "none" | "indefinite" | "deadline" | "flexible" | "periodic";
+export type PeriodicType = "weekly" | "monthly" | "yearly" | "interval";
+export type PeriodicEndMode = "never" | "until_date" | "after_count";
 export type ActorType = "human" | "agent" | "system";
 
 // ── Response types ──────────────────────────────────────────────────────────
@@ -38,8 +40,9 @@ export interface Initiative {
   title: string;
   description: string | null;
   state: InitiativeState;
-  due_start_at: string | null;
-  due_end_at: string | null;
+  timing_mode: TimingMode;
+  deadline_at: string | null;
+  grace_days: number | null;
   driver_ids: string[];
   created_by: string;
   updated_by: string;
@@ -54,6 +57,10 @@ export interface ChecklistItem {
   is_done: boolean;
 }
 
+export interface PeriodicSpec {
+  [key: string]: unknown;
+}
+
 export interface Task {
   id: string;
   title: string;
@@ -61,12 +68,14 @@ export interface Task {
   status: TaskStatus;
   priority: TaskPriority;
   initiative_id: string | null;
-  due_start_at: string | null;
-  due_end_at: string | null;
-  recurrence: TaskRecurrence | null;
-  recurrence_interval: number | null;
-  recurrence_rule: string | null;
-  recurrence_until: string | null;
+  timing_mode: TimingMode;
+  deadline_at: string | null;
+  grace_days: number | null;
+  periodic_type: PeriodicType | null;
+  periodic_spec: PeriodicSpec | null;
+  periodic_end_mode: PeriodicEndMode | null;
+  periodic_end_at: string | null;
+  periodic_end_count: number | null;
   checklist_json: ChecklistItem[];
   driver_ids: string[];
   created_by: string;
@@ -107,12 +116,14 @@ export interface TaskCreate {
   status?: TaskStatus;
   priority?: TaskPriority;
   initiative_id?: string | null;
-  due_start_at?: string | null;
-  due_end_at?: string | null;
-  recurrence?: TaskRecurrence | null;
-  recurrence_interval?: number | null;
-  recurrence_rule?: string | null;
-  recurrence_until?: string | null;
+  timing_mode?: TimingMode;
+  deadline_at?: string | null;
+  grace_days?: number | null;
+  periodic_type?: PeriodicType | null;
+  periodic_spec?: PeriodicSpec | null;
+  periodic_end_mode?: PeriodicEndMode | null;
+  periodic_end_at?: string | null;
+  periodic_end_count?: number | null;
   checklist_json?: ChecklistItem[];
   driver_ids?: string[];
 }
@@ -123,12 +134,14 @@ export interface TaskUpdate {
   status?: TaskStatus;
   priority?: TaskPriority;
   initiative_id?: string | null;
-  due_start_at?: string | null;
-  due_end_at?: string | null;
-  recurrence?: TaskRecurrence | null;
-  recurrence_interval?: number | null;
-  recurrence_rule?: string | null;
-  recurrence_until?: string | null;
+  timing_mode?: TimingMode;
+  deadline_at?: string | null;
+  grace_days?: number | null;
+  periodic_type?: PeriodicType | null;
+  periodic_spec?: PeriodicSpec | null;
+  periodic_end_mode?: PeriodicEndMode | null;
+  periodic_end_at?: string | null;
+  periodic_end_count?: number | null;
   checklist_json?: ChecklistItem[];
   driver_ids?: string[];
 }
@@ -137,8 +150,9 @@ export interface InitiativeCreate {
   title: string;
   description?: string | null;
   state?: InitiativeState;
-  due_start_at?: string | null;
-  due_end_at?: string | null;
+  timing_mode?: TimingMode;
+  deadline_at?: string | null;
+  grace_days?: number | null;
   driver_ids?: string[];
 }
 
@@ -146,8 +160,9 @@ export interface InitiativeUpdate {
   title?: string;
   description?: string | null;
   state?: InitiativeState;
-  due_start_at?: string | null;
-  due_end_at?: string | null;
+  timing_mode?: TimingMode;
+  deadline_at?: string | null;
+  grace_days?: number | null;
   driver_ids?: string[];
 }
 

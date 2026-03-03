@@ -9,9 +9,11 @@ from app.models import (
     DriverState,
     DriverType,
     InitiativeState,
+    PeriodicEndMode,
+    PeriodicType,
     TaskPriority,
-    TaskRecurrence,
     TaskStatus,
+    TimingMode,
 )
 
 
@@ -59,8 +61,9 @@ class InitiativeBase(BaseModel):
     title: str = Field(min_length=1, max_length=255)
     description: str | None = None
     state: InitiativeState = InitiativeState.active
-    due_start_at: datetime | None = None
-    due_end_at: datetime | None = None
+    timing_mode: TimingMode = TimingMode.none
+    deadline_at: datetime | None = None
+    grace_days: int | None = Field(default=None, ge=1)
 
 
 class InitiativeCreate(InitiativeBase):
@@ -71,8 +74,9 @@ class InitiativeUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=255)
     description: str | None = None
     state: InitiativeState | None = None
-    due_start_at: datetime | None = None
-    due_end_at: datetime | None = None
+    timing_mode: TimingMode | None = None
+    deadline_at: datetime | None = None
+    grace_days: int | None = Field(default=None, ge=1)
     driver_ids: list[str] | None = None
 
 
@@ -94,18 +98,24 @@ class ChecklistItem(BaseModel):
     is_done: bool = False
 
 
+class PeriodicSpec(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+
 class TaskBase(BaseModel):
     title: str = Field(min_length=1, max_length=255)
     description: str | None = None
     status: TaskStatus = TaskStatus.todo
     priority: TaskPriority = TaskPriority.medium
     initiative_id: str | None = None
-    due_start_at: datetime | None = None
-    due_end_at: datetime | None = None
-    recurrence: TaskRecurrence | None = None
-    recurrence_interval: int | None = Field(default=None, ge=1)
-    recurrence_rule: str | None = None
-    recurrence_until: datetime | None = None
+    timing_mode: TimingMode = TimingMode.none
+    deadline_at: datetime | None = None
+    grace_days: int | None = Field(default=None, ge=1)
+    periodic_type: PeriodicType | None = None
+    periodic_spec: PeriodicSpec | None = None
+    periodic_end_mode: PeriodicEndMode | None = None
+    periodic_end_at: datetime | None = None
+    periodic_end_count: int | None = Field(default=None, ge=1)
     checklist_json: list[ChecklistItem] = Field(default_factory=list)
 
 
@@ -119,12 +129,14 @@ class TaskUpdate(BaseModel):
     status: TaskStatus | None = None
     priority: TaskPriority | None = None
     initiative_id: str | None = None
-    due_start_at: datetime | None = None
-    due_end_at: datetime | None = None
-    recurrence: TaskRecurrence | None = None
-    recurrence_interval: int | None = Field(default=None, ge=1)
-    recurrence_rule: str | None = None
-    recurrence_until: datetime | None = None
+    timing_mode: TimingMode | None = None
+    deadline_at: datetime | None = None
+    grace_days: int | None = Field(default=None, ge=1)
+    periodic_type: PeriodicType | None = None
+    periodic_spec: PeriodicSpec | None = None
+    periodic_end_mode: PeriodicEndMode | None = None
+    periodic_end_at: datetime | None = None
+    periodic_end_count: int | None = Field(default=None, ge=1)
     checklist_json: list[ChecklistItem] | None = None
     driver_ids: list[str] | None = None
 
